@@ -1,0 +1,5 @@
+node_modules/
+rntx.db
+rntx.db-shm
+rntx.db-wal
+npm-debug.log*
