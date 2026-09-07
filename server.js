@@ -54,6 +54,58 @@ CREATE TABLE IF NOT EXISTS devices (
 );
 `);
 
+function ensureColumn(table, column, definition) {
+  const exists = db.prepare(`PRAGMA table_info(${table})`).all().some(c => c.name === column);
+  if (!exists) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+
+ensureColumn("keys", "price_paid", "INTEGER NOT NULL DEFAULT 0");
+ensureColumn("keys", "order_id", "TEXT");
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS pricing_plans (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  duration TEXT UNIQUE NOT NULL,
+  price INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS orders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id TEXT UNIQUE NOT NULL,
+  reseller_id INTEGER NOT NULL,
+  duration TEXT NOT NULL,
+  unit_price INTEGER NOT NULL,
+  quantity INTEGER NOT NULL,
+  total_amount INTEGER NOT NULL,
+  balance_before INTEGER NOT NULL,
+  balance_after INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS transactions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  transaction_id TEXT UNIQUE NOT NULL,
+  user_id INTEGER NOT NULL,
+  type TEXT NOT NULL,
+  amount INTEGER NOT NULL,
+  balance_before INTEGER NOT NULL,
+  balance_after INTEGER NOT NULL,
+  description TEXT NOT NULL,
+  related_order_id TEXT,
+  related_license_id INTEGER,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+`);
+
+const defaultPlans = [
+  ["5 Hours", 50, 1], ["12 Hours", 100, 2], ["1 Day", 150, 3],
+  ["7 Days", 400, 4], ["15 Days", 700, 5], ["1 Month", 900, 6],
+  ["2 Months", 1200, 7], ["Lifetime", 5000, 8]
+];
+const insertPlan = db.prepare("INSERT OR IGNORE INTO pricing_plans(duration,price,sort_order) VALUES(?,?,?)");
+for (const plan of defaultPlans) insertPlan.run(...plan);
+
 function ensureAdmin() {
   const admin = db.prepare("SELECT id FROM users WHERE role='admin' LIMIT 1").get();
   if (!admin) {
@@ -75,6 +127,9 @@ function adminOnly(req,res,next) {
 }
 function makeKey() {
   return "RNTX-" + crypto.randomBytes(9).toString("base64url").toUpperCase();
+}
+function makeId(prefix) {
+  return `${prefix}-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
 }
 function expiryFromDuration(duration) {
   if (String(duration).toLowerCase() === "lifetime") return null;
@@ -108,7 +163,26 @@ app.get("/api/dashboard",auth,(req,res)=>{
   const blocked=db.prepare("SELECT COUNT(*) c FROM keys WHERE status='BLOCKED'").get().c;
   const users=db.prepare("SELECT COUNT(*) c FROM users WHERE role!='admin'").get().c;
   const resellers=db.prepare("SELECT COUNT(*) c FROM users WHERE role='reseller' AND active=1").get().c;
-  res.json({total,used,unused,blocked,users,resellers});
+  const wallet = req.session.user.role === "reseller"
+    ? db.prepare("SELECT balance FROM users WHERE id=?").get(req.session.user.id)?.balance || 0
+    : null;
+  const totalCredits = db.prepare("SELECT COALESCE(SUM(amount),0) total FROM transactions WHERE type='CREDIT'").get().total;
+  const totalDebits = Math.abs(db.prepare("SELECT COALESCE(SUM(amount),0) total FROM transactions WHERE type='LICENSE_DEBIT'").get().total);
+  const recentTransactions = db.prepare(`SELECT t.*,u.username FROM transactions t
+    LEFT JOIN users u ON u.id=t.user_id ORDER BY t.id DESC LIMIT 5`).all();
+  res.json({total,used,unused,blocked,users,resellers,wallet,totalCredits,totalDebits,recentTransactions});
+});
+
+app.get("/api/plans",auth,(req,res)=>{
+  res.json(db.prepare("SELECT id,duration,price,active,sort_order,updated_at FROM pricing_plans ORDER BY sort_order,id").all());
+});
+app.patch("/api/plans/:id",adminOnly,(req,res)=>{
+  const price = Number(req.body.price);
+  if (!Number.isInteger(price) || price < 0 || price > 100000000) return res.status(400).json({error:"Price must be a whole number between ₹0 and ₹100,000,000"});
+  const plan = db.prepare("SELECT id FROM pricing_plans WHERE id=?").get(req.params.id);
+  if (!plan) return res.status(404).json({error:"Pricing plan not found"});
+  db.prepare("UPDATE pricing_plans SET price=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").run(price, plan.id);
+  res.json({ok:true});
 });
 
 // Keys
@@ -130,10 +204,53 @@ app.get("/api/keys",auth,(req,res)=>{
 app.post("/api/keys",auth,(req,res)=>{
   const {game="My APK",duration="Lifetime",maxDevices=1}=req.body;
   const owner=req.session.user.id;
-  const key=makeKey(), expires=expiryFromDuration(duration);
-  db.prepare(`INSERT INTO keys(license_key,game,duration,expires_at,max_devices,owner_id)
-              VALUES(?,?,?,?,?,?)`).run(key,game,duration,expires,Number(maxDevices)||1,owner);
-  res.json({ok:true,key,expires_at:expires});
+  const quantity = Number(req.body.quantity ?? 1);
+  const devices = Number(maxDevices);
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 100) return res.status(400).json({error:"Quantity must be between 1 and 100"});
+  if (!Number.isInteger(devices) || devices < 1 || devices > 1000) return res.status(400).json({error:"Device limit must be between 1 and 1000"});
+  const cleanGame = String(game || "My APK").trim().slice(0,100) || "My APK";
+  const isReseller = req.session.user.role === "reseller";
+  const plan = db.prepare("SELECT * FROM pricing_plans WHERE duration=? AND active=1").get(duration);
+  if (isReseller && !plan) return res.status(400).json({error:"Choose an active pricing plan"});
+  const unitPrice = isReseller ? plan.price : 0;
+  const total = unitPrice * quantity;
+  try {
+    const result = db.transaction(() => {
+      const current = db.prepare("SELECT balance,active FROM users WHERE id=?").get(owner);
+      if (!current || !current.active) throw new Error("Account is inactive");
+      const before = current.balance || 0;
+      if (isReseller && before < total) throw new Error("Insufficient balance. Please contact admin to add balance.");
+      const after = before - total;
+      const orderId = isReseller ? makeId("ORD") : null;
+      if (isReseller) {
+        const updated = db.prepare("UPDATE users SET balance=? WHERE id=? AND balance=?").run(after, owner, before);
+        if (updated.changes !== 1) throw new Error("Balance changed. Please try again.");
+        db.prepare(`INSERT INTO orders(order_id,reseller_id,duration,unit_price,quantity,total_amount,balance_before,balance_after)
+          VALUES(?,?,?,?,?,?,?,?)`).run(orderId,owner,duration,unitPrice,quantity,total,before,after);
+      }
+      const keys = [];
+      const insert = db.prepare(`INSERT INTO keys(license_key,game,duration,expires_at,max_devices,owner_id,price_paid,order_id)
+        VALUES(?,?,?,?,?,?,?,?)`);
+      for (let i=0;i<quantity;i++) {
+        const key = makeKey();
+        const expires = expiryFromDuration(duration);
+        insert.run(key,cleanGame,duration,expires,devices,owner,unitPrice,orderId);
+        keys.push({key,expires_at:expires});
+      }
+      if (isReseller) {
+        db.prepare(`INSERT INTO transactions(transaction_id,user_id,type,amount,balance_before,balance_after,description,related_order_id)
+          VALUES(?,?,?,?,?,?,?,?)`).run(
+          makeId("TXN"), owner, "LICENSE_DEBIT", -total, before, after,
+          `${duration} license${quantity === 1 ? "" : "s"} × ${quantity}`, orderId
+        );
+      }
+      return {keys,orderId,balanceBefore:before,balanceAfter:after,unitPrice,total};
+    })();
+    res.json({ok:true,...result,key:result.keys[0].key,expires_at:result.keys[0].expires_at});
+  } catch (e) {
+    const message = e.message.includes("Insufficient") ? e.message : (e.message.includes("inactive") ? e.message : "Could not create license purchase");
+    res.status(message.startsWith("Insufficient") || message === "Account is inactive" ? 400 : 500).json({error:message});
+  }
 });
 app.patch("/api/keys/:id",auth,(req,res)=>{
   const row=db.prepare("SELECT * FROM keys WHERE id=?").get(req.params.id);
@@ -174,8 +291,10 @@ app.post("/api/activate",(req,res)=>{
 
 // Admin/reseller management
 app.get("/api/users",adminOnly,(req,res)=>{
-  res.json(db.prepare(`SELECT id,username,role,referral_code,parent_id,panel_expires_at,balance,active,created_at
-    FROM users ORDER BY id DESC`).all());
+  res.json(db.prepare(`SELECT u.id,u.username,u.role,u.referral_code,u.parent_id,u.panel_expires_at,u.balance,u.active,u.created_at,
+    COALESCE((SELECT SUM(amount) FROM transactions WHERE user_id=u.id AND type='CREDIT'),0) total_credits,
+    ABS(COALESCE((SELECT SUM(amount) FROM transactions WHERE user_id=u.id AND type='LICENSE_DEBIT'),0)) total_debits
+    FROM users u ORDER BY u.id DESC`).all());
 });
 app.post("/api/users",adminOnly,(req,res)=>{
   const {username,password,role="reseller",days=null,parentId=null}=req.body;
@@ -195,6 +314,33 @@ app.patch("/api/users/:id",adminOnly,(req,res)=>{
   const active=req.body.active;
   if(active!==undefined) db.prepare("UPDATE users SET active=? WHERE id=?").run(active?1:0,req.params.id);
   res.json({ok:true});
+});
+
+app.post("/api/users/:id/balance",adminOnly,(req,res)=>{
+  const amount = Number(req.body.amount);
+  if (!Number.isInteger(amount) || amount <= 0 || amount > 100000000) return res.status(400).json({error:"Credit must be a whole number greater than ₹0"});
+  const description = String(req.body.description || "Admin wallet credit").trim().slice(0,200) || "Admin wallet credit";
+  try {
+    const result = db.transaction(() => {
+      const user = db.prepare("SELECT id,username,balance,role,active FROM users WHERE id=?").get(req.params.id);
+      if (!user || user.role !== "reseller") throw new Error("Reseller not found");
+      const before = user.balance || 0, after = before + amount;
+      db.prepare("UPDATE users SET balance=? WHERE id=? AND balance=?").run(after,user.id,before);
+      db.prepare(`INSERT INTO transactions(transaction_id,user_id,type,amount,balance_before,balance_after,description)
+        VALUES(?,?,?,?,?,?,?)`).run(makeId("TXN"),user.id,"CREDIT",amount,before,after,description);
+      return {username:user.username,balanceBefore:before,balanceAfter:after};
+    })();
+    res.json({ok:true,...result});
+  } catch(e) { res.status(400).json({error:e.message || "Could not add balance"}); }
+});
+
+app.get("/api/transactions",auth,(req,res)=>{
+  const requested = req.session.user.role === "admin" && req.query.userId ? Number(req.query.userId) : req.session.user.id;
+  const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+  const rows = db.prepare(`SELECT t.*,u.username FROM transactions t
+    LEFT JOIN users u ON u.id=t.user_id
+    WHERE t.user_id=? ORDER BY t.id DESC LIMIT ?`).all(requested,limit);
+  res.json(rows);
 });
 
 app.get("/api/referrals",auth,(req,res)=>{

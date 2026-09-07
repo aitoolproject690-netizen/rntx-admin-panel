@@ -1,64 +1,109 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>RNTX ADMIN PANEL</title><link rel="stylesheet" href="/style.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#080b18">
+  <title>RNTX ADMIN PANEL</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%238d5bff'/%3E%3Ctext x='32' y='44' text-anchor='middle' font-family='Arial' font-size='36' font-weight='700' fill='white'%3ER%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<div id="login" class="screen">
-  <div class="login-card">
-    <div class="logo">🛡️</div><h1>RNTX ADMIN PANEL</h1><p>Secure License Management</p>
-    <input id="user" placeholder="Username" autocomplete="username">
-    <input id="pass" placeholder="Password" type="password" autocomplete="current-password">
-    <button onclick="login()">LOGIN</button><div id="loginMsg"></div>
+  <div id="toastStack" class="toast-stack" aria-live="polite"></div>
+  <div id="login" class="login-screen">
+    <div class="login-orb orb-a"></div><div class="login-orb orb-b"></div>
+    <form class="login-card" onsubmit="event.preventDefault();login()">
+      <div class="brand-mark"><span>R</span></div>
+      <p class="eyebrow">SECURE OPERATIONS</p>
+      <h1>RNTX <em>ADMIN PANEL</em></h1>
+      <p class="login-copy">Manage your licenses, resellers, and wallet operations from one place.</p>
+      <label for="user">Username</label>
+      <input id="user" placeholder="Enter your username" autocomplete="username" required>
+      <label for="pass">Password</label>
+      <input id="pass" placeholder="Enter your password" type="password" autocomplete="current-password" required>
+      <button class="button primary wide" type="submit"><span>Sign in to panel</span><span class="button-arrow">↗</span></button>
+      <div id="loginMsg" class="form-error"></div>
+      <small class="login-foot"><span class="status-dot"></span> Protected admin environment</small>
+    </form>
   </div>
-</div>
 
-<div id="app" class="hidden">
-<header><div class="brand">🛡️ <b>RNTX ADMIN PANEL</b></div><button class="menu" onclick="toggleNav()">☰</button></header>
-<nav id="nav">
- <button onclick="show('dashboard')">⌂ Dashboard</button>
- <button onclick="show('keys')">🔑 Keys Management</button>
- <button onclick="show('create')">⚙️ Create License</button>
- <button onclick="show('users')">👥 Manage Users</button>
- <button onclick="show('referrals')">🔗 Referral Network</button>
- <button onclick="logout()">⇥ Logout</button>
-</nav>
+  <div id="app" class="app-shell hidden">
+    <aside id="nav" class="sidebar">
+      <div class="sidebar-brand"><div class="brand-mark small"><span>R</span></div><div><strong>RNTX</strong><small>ADMIN PANEL</small></div></div>
+      <div class="nav-label">WORKSPACE</div>
+      <nav>
+        <button class="nav-item active" data-page="dashboard" onclick="show('dashboard')"><span class="nav-icon">⌂</span>Overview</button>
+        <button class="nav-item" data-page="keys" onclick="show('keys')"><span class="nav-icon">⌁</span>License keys</button>
+        <button class="nav-item" data-page="create" onclick="show('create')"><span class="nav-icon">＋</span>Generate license</button>
+        <button class="nav-item admin-only" data-page="users" onclick="show('users')"><span class="nav-icon">♙</span>Resellers</button>
+        <button class="nav-item admin-only" data-page="pricing" onclick="show('pricing')"><span class="nav-icon">₹</span>Pricing</button>
+        <button class="nav-item" data-page="transactions" onclick="show('transactions')"><span class="nav-icon">↔</span>Transactions</button>
+        <button class="nav-item" data-page="referrals" onclick="show('referrals')"><span class="nav-icon">⌘</span>Referral network</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="support-card"><span class="support-icon">✦</span><div><b>Need a hand?</b><small>Manage your panel securely.</small></div></div>
+        <button class="nav-item logout" onclick="logout()"><span class="nav-icon">↪</span>Sign out</button>
+      </div>
+    </aside>
+    <div id="mobileOverlay" class="mobile-overlay" onclick="toggleNav()"></div>
+    <div class="content-shell">
+      <header class="topbar">
+        <button class="menu-button" onclick="toggleNav()" aria-label="Open menu">☰</button>
+        <div class="breadcrumb"><span>RNTX ADMIN PANEL</span><b>/</b><strong id="pageTitle">Overview</strong></div>
+        <div class="topbar-actions"><div class="user-chip"><span class="avatar">R</span><span><b id="currentUser">Admin</b><small id="currentRole">Administrator</small></span></div></div>
+      </header>
+      <main class="main-content">
+        <section id="dashboard" class="page">
+          <div class="page-heading"><div><p class="eyebrow">MONDAY, SEPTEMBER 07, 2026</p><h2>Good to see you, <span id="helloName">Admin</span>.</h2><p class="muted">Here’s what’s happening with your license network today.</p></div><button class="button primary" onclick="show('create')">＋ Generate license</button></div>
+          <div id="stats" class="stats-grid"></div>
+          <div class="dashboard-grid">
+            <div class="panel usage-panel"><div class="panel-heading"><div><p class="eyebrow">PERFORMANCE</p><h3>License usage</h3></div><span class="live-badge"><i></i> Live</span></div><div class="usage-content"><div class="progress-ring"><div><strong id="usagePercent">0%</strong><small>used</small></div></div><div class="usage-summary"><b id="usageCount">0 / 0</b><span>licenses activated</span><div class="legend"><i class="dot green"></i>Active <i class="dot purple"></i>Available <i class="dot red"></i>Blocked</div></div></div></div>
+            <div class="panel wallet-panel"><div class="panel-heading"><div><p class="eyebrow">WALLET BALANCE</p><h3>Your balance</h3></div><span class="wallet-icon">₹</span></div><div class="wallet-amount" id="walletAmount">—</div><p class="muted">Available for new license purchases</p><button class="button ghost" onclick="show('transactions')">View transactions <span>→</span></button></div>
+          </div>
+          <div class="panel"><div class="panel-heading"><div><p class="eyebrow">ACTIVITY</p><h3>Recent transactions</h3></div><button class="text-button" onclick="show('transactions')">View all →</button></div><div class="table-wrap"><table><thead><tr><th>TRANSACTION</th><th>RESELLER</th><th>TYPE</th><th>AMOUNT</th><th>DATE</th></tr></thead><tbody id="recentBody"></tbody></table></div></div>
+        </section>
 
-<main>
-<section id="dashboard" class="page">
- <h2>DASHBOARD</h2><div id="stats" class="grid"></div>
- <div class="card"><h3>KEY USAGE</h3><div id="usage"></div></div>
-</section>
+        <section id="keys" class="page hidden">
+          <div class="page-heading"><div><p class="eyebrow">LICENSE CENTER</p><h2>License keys</h2><p class="muted">Monitor, search, and control every key in your network.</p></div><button class="button primary" onclick="show('create')">＋ Generate key</button></div>
+          <div class="toolbar"><div class="search-box"><span>⌕</span><input id="search" placeholder="Search by key, app, or duration…" oninput="loadKeys()"></div><button class="button ghost" onclick="loadKeys()">↻ Refresh</button></div>
+          <div class="panel table-panel"><div class="table-wrap"><table><thead><tr><th>LICENSE KEY</th><th>APP</th><th>PLAN</th><th>EXPIRY</th><th>STATUS</th><th>DEVICES</th><th></th></tr></thead><tbody id="keysBody"></tbody></table></div></div>
+        </section>
 
-<section id="keys" class="page hidden">
- <div class="row"><h2>KEYS MANAGEMENT</h2><button onclick="show('create')">＋ CREATE KEY</button></div>
- <input id="search" class="search" placeholder="Search keys, game, duration..." oninput="loadKeys()">
- <div class="card tablewrap"><table><thead><tr><th>USER KEY</th><th>GAME</th><th>EXPIRATION</th><th>STATUS</th><th>DEVICES</th><th>ACTIONS</th></tr></thead><tbody id="keysBody"></tbody></table></div>
-</section>
+        <section id="create" class="page hidden">
+          <div class="page-heading"><div><p class="eyebrow">LICENSE CENTER / NEW</p><h2>Generate a license</h2><p class="muted">Choose a plan and create a secure license key in seconds.</p></div></div>
+          <div class="create-layout"><div class="panel create-form"><div class="panel-heading"><div><p class="eyebrow">CONFIGURATION</p><h3>License details</h3></div><span class="step-label">STEP 01 / 01</span></div><label for="game">Application name</label><input id="game" value="My APK" placeholder="e.g. RNTX Mobile"><label>Choose duration</label><div id="planCards" class="plan-grid"></div><div class="form-two"><div><label for="quantity">Quantity</label><input id="quantity" type="number" min="1" max="100" value="1" oninput="updatePurchaseSummary()"></div><div><label for="devices">Devices per key</label><input id="devices" type="number" min="1" max="1000" value="1"></div></div><div class="selected-plan-note" id="selectedPlanNote"></div><button class="button primary wide" onclick="createKey()">Generate license <span>↗</span></button><div id="newKey" class="keybox hidden"></div></div><div class="panel purchase-summary"><p class="eyebrow">ORDER SUMMARY</p><h3>Review purchase</h3><div id="purchasePlan" class="summary-plan"><span class="summary-icon">✦</span><div><b>Choose a plan</b><small>Select a duration to continue</small></div></div><div class="summary-lines"><div><span>Price per license</span><b id="unitPrice">₹0</b></div><div><span>Quantity</span><b id="summaryQuantity">1</b></div><div class="summary-total"><span>Total cost</span><strong id="totalPrice">₹0</strong></div></div><div class="balance-box"><div><span>Current balance</span><b id="currentBalance">—</b></div><div><span>After purchase</span><b id="afterBalance">—</b></div></div><p id="purchaseHint" class="muted small-copy">Admin-created keys do not use the reseller wallet.</p></div></div>
+        </section>
 
-<section id="create" class="page hidden">
- <div class="card formcard"><h2>CREATE LICENSE (RANDOM)</h2>
-  <label>Game</label><input id="game" value="My APK">
-  <label>Max Devices</label><input id="devices" type="number" min="1" value="1">
-  <label>Duration</label><select id="duration"><option>5 Hours</option><option>1 Day</option><option>7 Days</option><option>30 Days</option><option>1 Year</option><option>Lifetime</option></select>
-  <button onclick="createKey()">GENERATE KEY</button><div id="newKey" class="keybox"></div>
- </div>
-</section>
+        <section id="users" class="page hidden">
+          <div class="page-heading"><div><p class="eyebrow">NETWORK MANAGEMENT</p><h2>Resellers</h2><p class="muted">Manage accounts, balances, and reseller activity.</p></div><button class="button primary" onclick="openModal('createUserModal')">＋ Add reseller</button></div>
+          <div class="reseller-overview" id="resellerOverview"></div>
+          <div class="toolbar"><div class="search-box"><span>⌕</span><input id="resellerSearch" placeholder="Search resellers…" oninput="renderUsers()"></div><button class="button ghost" onclick="loadUsers()">↻ Refresh</button></div>
+          <div class="panel table-panel"><div class="table-wrap"><table><thead><tr><th>RESELLER</th><th>STATUS</th><th>BALANCE</th><th>TOTAL CREDITS</th><th>LICENSE DEBITS</th><th></th></tr></thead><tbody id="usersBody"></tbody></table></div></div>
+        </section>
 
-<section id="users" class="page hidden">
- <h2>MANAGE USERS / RESELLERS</h2>
- <div class="card formcard">
-  <h3>Create Reseller</h3><input id="nu" placeholder="Username"><input id="np" placeholder="Password" type="password">
-  <input id="nd" placeholder="Panel days (blank = lifetime)" type="number"><button onclick="createUser()">CREATE RESELLER</button>
- </div>
- <div class="card tablewrap"><table><thead><tr><th>USERNAME</th><th>ROLE</th><th>REFERRAL</th><th>ACTIVE</th><th>BALANCE</th><th>ACTION</th></tr></thead><tbody id="usersBody"></tbody></table></div>
-</section>
+        <section id="pricing" class="page hidden">
+          <div class="page-heading"><div><p class="eyebrow">REVENUE CONTROLS</p><h2>License pricing</h2><p class="muted">Update prices for future reseller purchases. Existing orders never change.</p></div></div>
+          <div id="pricingGrid" class="pricing-grid"></div>
+        </section>
 
-<section id="referrals" class="page hidden">
- <h2>REFERRAL NETWORK</h2><div class="card"><p>Your referral code:</p><div id="myRef" class="keybox"></div><div id="refBody"></div></div>
-</section>
-</main>
-</div>
+        <section id="transactions" class="page hidden">
+          <div class="page-heading"><div><p class="eyebrow">FINANCE</p><h2>Transactions</h2><p class="muted">A complete ledger of credits and license purchases.</p></div></div>
+          <div class="panel table-panel"><div class="table-wrap"><table><thead><tr><th>TRANSACTION ID</th><th>RESELLER</th><th>TYPE</th><th>AMOUNT</th><th>BALANCE</th><th>DESCRIPTION</th><th>DATE</th></tr></thead><tbody id="transactionsBody"></tbody></table></div></div>
+        </section>
+
+        <section id="referrals" class="page hidden">
+          <div class="page-heading"><div><p class="eyebrow">NETWORK MANAGEMENT</p><h2>Referral network</h2><p class="muted">See the reseller relationships connected to your account.</p></div></div>
+          <div class="panel referral-panel"><div class="referral-hero"><span class="referral-icon">⌘</span><div><p class="eyebrow">YOUR REFERRAL CODE</p><h3 id="myRef">—</h3><p class="muted">Share this code with your network.</p></div></div><div id="refBody" class="ref-list"></div></div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <div id="createUserModal" class="modal hidden"><div class="modal-card"><button class="modal-close" onclick="closeModal('createUserModal')">×</button><p class="eyebrow">NETWORK MANAGEMENT</p><h3>Add reseller</h3><p class="muted">Create a new account for your license network.</p><form onsubmit="event.preventDefault();createUser()"><label>Username</label><input id="nu" required autocomplete="username" placeholder="reseller_username"><label>Password</label><input id="np" required autocomplete="new-password" type="password" minlength="6" placeholder="At least 6 characters"><label>Panel access days <small>(optional)</small></label><input id="nd" type="number" min="1" placeholder="Leave blank for lifetime"><button class="button primary wide" type="submit">Create reseller <span>↗</span></button></form></div></div>
+  <div id="creditModal" class="modal hidden"><div class="modal-card"><button class="modal-close" onclick="closeModal('creditModal')">×</button><p class="eyebrow">WALLET MANAGEMENT</p><h3>Add balance</h3><p class="muted">Credit funds to <b id="creditUserName">this reseller</b>.</p><input id="creditAmount" type="number" min="1" placeholder="Amount in ₹"><input id="creditDescription" placeholder="Description (optional)" value="Admin wallet credit"><div class="confirm-box">The reseller will receive this credit immediately. This action will be recorded in the transaction ledger.</div><button class="button primary wide" onclick="confirmCredit()">Confirm credit <span>↗</span></button></div></div>
+</body>
 <script src="/app.js"></script>
-</body></html>
+</html>
