@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RNTX ADMIN PANEL</title><link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="login" class="screen">
+  <div class="login-card">
+    <div class="logo">🛡️</div><h1>RNTX ADMIN PANEL</h1><p>Secure License Management</p>
+    <input id="user" placeholder="Username" autocomplete="username">
+    <input id="pass" placeholder="Password" type="password" autocomplete="current-password">
+    <button onclick="login()">LOGIN</button><div id="loginMsg"></div>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+<header><div class="brand">🛡️ <b>RNTX ADMIN PANEL</b></div><button class="menu" onclick="toggleNav()">☰</button></header>
+<nav id="nav">
+ <button onclick="show('dashboard')">⌂ Dashboard</button>
+ <button onclick="show('keys')">🔑 Keys Management</button>
+ <button onclick="show('create')">⚙️ Create License</button>
+ <button onclick="show('users')">👥 Manage Users</button>
+ <button onclick="show('referrals')">🔗 Referral Network</button>
+ <button onclick="logout()">⇥ Logout</button>
+</nav>
+
+<main>
+<section id="dashboard" class="page">
+ <h2>DASHBOARD</h2><div id="stats" class="grid"></div>
+ <div class="card"><h3>KEY USAGE</h3><div id="usage"></div></div>
+</section>
+
+<section id="keys" class="page hidden">
+ <div class="row"><h2>KEYS MANAGEMENT</h2><button onclick="show('create')">＋ CREATE KEY</button></div>
+ <input id="search" class="search" placeholder="Search keys, game, duration..." oninput="loadKeys()">
+ <div class="card tablewrap"><table><thead><tr><th>USER KEY</th><th>GAME</th><th>EXPIRATION</th><th>STATUS</th><th>DEVICES</th><th>ACTIONS</th></tr></thead><tbody id="keysBody"></tbody></table></div>
+</section>
+
+<section id="create" class="page hidden">
+ <div class="card formcard"><h2>CREATE LICENSE (RANDOM)</h2>
+  <label>Game</label><input id="game" value="My APK">
+  <label>Max Devices</label><input id="devices" type="number" min="1" value="1">
+  <label>Duration</label><select id="duration"><option>5 Hours</option><option>1 Day</option><option>7 Days</option><option>30 Days</option><option>1 Year</option><option>Lifetime</option></select>
+  <button onclick="createKey()">GENERATE KEY</button><div id="newKey" class="keybox"></div>
+ </div>
+</section>
+
+<section id="users" class="page hidden">
+ <h2>MANAGE USERS / RESELLERS</h2>
+ <div class="card formcard">
+  <h3>Create Reseller</h3><input id="nu" placeholder="Username"><input id="np" placeholder="Password" type="password">
+  <input id="nd" placeholder="Panel days (blank = lifetime)" type="number"><button onclick="createUser()">CREATE RESELLER</button>
+ </div>
+ <div class="card tablewrap"><table><thead><tr><th>USERNAME</th><th>ROLE</th><th>REFERRAL</th><th>ACTIVE</th><th>BALANCE</th><th>ACTION</th></tr></thead><tbody id="usersBody"></tbody></table></div>
+</section>
+
+<section id="referrals" class="page hidden">
+ <h2>REFERRAL NETWORK</h2><div class="card"><p>Your referral code:</p><div id="myRef" class="keybox"></div><div id="refBody"></div></div>
+</section>
+</main>
+</div>
+<script src="/app.js"></script>
+</body></html>
