@@ -41,6 +41,7 @@
         <button class="nav-item admin-only" data-page="users" onclick="show('users')"><span class="nav-icon">♙</span>Resellers</button>
         <button class="nav-item admin-only" data-page="pricing" onclick="show('pricing')"><span class="nav-icon">₹</span>Pricing</button>
         <button class="nav-item" data-page="transactions" onclick="show('transactions')"><span class="nav-icon">↔</span>Transactions</button>
+        <button class="nav-item admin-only" data-page="audit" onclick="show('audit')"><span class="nav-icon">◉</span>Audit log</button>
         <button class="nav-item" data-page="referrals" onclick="show('referrals')"><span class="nav-icon">⌘</span>Referral network</button>
       </nav>
       <div class="sidebar-bottom">
@@ -94,6 +95,11 @@
           <div class="panel table-panel"><div class="table-wrap"><table><thead><tr><th>TRANSACTION ID</th><th>RESELLER</th><th>TYPE</th><th>AMOUNT</th><th>BALANCE</th><th>DESCRIPTION</th><th>DATE</th></tr></thead><tbody id="transactionsBody"></tbody></table></div></div>
         </section>
 
+        <section id="audit" class="page hidden">
+          <div class="page-heading"><div><p class="eyebrow">SECURITY CENTER</p><h2>Audit log</h2><p class="muted">Authentication events and important admin actions.</p></div><button class="button ghost" onclick="loadAudit()">↻ Refresh</button></div>
+          <div class="panel table-panel"><div class="table-wrap"><table><thead><tr><th>EVENT</th><th>USER</th><th>IP ADDRESS</th><th>DETAILS</th><th>DATE</th></tr></thead><tbody id="auditBody"></tbody></table></div></div>
+        </section>
+
         <section id="referrals" class="page hidden">
           <div class="page-heading"><div><p class="eyebrow">NETWORK MANAGEMENT</p><h2>Referral network</h2><p class="muted">See the reseller relationships connected to your account.</p></div></div>
           <div class="panel referral-panel"><div class="referral-hero"><span class="referral-icon">⌘</span><div><p class="eyebrow">YOUR REFERRAL CODE</p><h3 id="myRef">—</h3><p class="muted">Share this code with your network.</p></div></div><div id="refBody" class="ref-list"></div></div>
@@ -104,6 +110,7 @@
 
   <div id="createUserModal" class="modal hidden"><div class="modal-card"><button class="modal-close" onclick="closeModal('createUserModal')">×</button><p class="eyebrow">NETWORK MANAGEMENT</p><h3>Add reseller</h3><p class="muted">Create a new account for your license network.</p><form onsubmit="event.preventDefault();createUser()"><label>Username</label><input id="nu" required autocomplete="username" placeholder="reseller_username"><label>Password</label><input id="np" required autocomplete="new-password" type="password" minlength="6" placeholder="At least 6 characters"><label>Panel access days <small>(optional)</small></label><input id="nd" type="number" min="1" placeholder="Leave blank for lifetime"><button class="button primary wide" type="submit">Create reseller <span>↗</span></button></form></div></div>
   <div id="creditModal" class="modal hidden"><div class="modal-card"><button class="modal-close" onclick="closeModal('creditModal')">×</button><p class="eyebrow">WALLET MANAGEMENT</p><h3>Add balance</h3><p class="muted">Credit funds to <b id="creditUserName">this reseller</b>.</p><input id="creditAmount" type="number" min="1" placeholder="Amount in ₹"><input id="creditDescription" placeholder="Description (optional)" value="Admin wallet credit"><div class="confirm-box">The reseller will receive this credit immediately. This action will be recorded in the transaction ledger.</div><button class="button primary wide" onclick="confirmCredit()">Confirm credit <span>↗</span></button></div></div>
+<style>.event-pill{display:inline-flex;padding:6px 9px;border-radius:7px;background:#8d5bff13;color:#bca7ff;font-size:9px;font-weight:700;letter-spacing:.5px}.audit-details{color:#909bb4;font-size:11px;max-width:360px;white-space:normal}</style>
 </body>
 <script src="/app.js"></script>
 </html>

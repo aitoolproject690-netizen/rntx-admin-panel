@@ -65,6 +65,7 @@ function show(id) {
   if (id === "users") loadUsers();
   if (id === "pricing") loadPricing();
   if (id === "transactions") loadTransactions();
+  if (id === "audit") loadAudit();
   if (id === "referrals") loadRefs();
 }
 async function loadDash() {
@@ -157,6 +158,7 @@ async function savePrice(id) { const input = $(`price-${id}`); try { await api(`
 async function openCredit(id, username) { selectedUserId=id; $("creditUserName").textContent=username; $("creditAmount").value=""; openModal("creditModal"); }
 async function confirmCredit() { const amount=Number($("creditAmount").value); if (!amount) return toast("Enter a credit amount","error"); try { const d=await api(`/api/users/${selectedUserId}/balance`,{method:"POST",body:JSON.stringify({amount,description:$("creditDescription").value})}); closeModal("creditModal"); toast(`${money(amount)} added to ${d.username}`); loadUsers(); } catch(e) { toast(e.message,"error"); } }
 async function loadTransactions() { try { const rows=await api("/api/transactions"); $("transactionsBody").innerHTML=rows.length?rows.map(t=>`<tr><td class="mono">${esc(t.transaction_id)}</td><td>${esc(t.username||"—")}</td><td><span class="type-pill ${t.type==="CREDIT"?"credit":"debit"}">${t.type==="CREDIT"?"＋ CREDIT":"− LICENSE DEBIT"}</span></td><td class="${t.amount>0?"amount-positive":"amount-negative"}">${t.amount>0?"+":"−"}${money(Math.abs(t.amount))}</td><td>${money(t.balance_before)} → ${money(t.balance_after)}</td><td>${esc(t.description)}</td><td>${date(t.created_at)}</td></tr>`).join(""):emptyRow(7,"No transactions yet"); } catch(e) { toast(e.message,"error"); } }
+async function loadAudit() { try { const rows=await api("/api/audit-logs"); $("auditBody").innerHTML=rows.length?rows.map(a=>{ let details={}; try { details=JSON.parse(a.metadata||"{}"); } catch {} const text=Object.entries(details).filter(([key])=>key!=="username").map(([key,value])=>`${key}: ${value}`).join(" · "); return `<tr><td><span class="event-pill">${esc(a.event_type.replaceAll("_"," "))}</span></td><td>${esc(a.username||"System")}</td><td class="mono">${esc(a.ip_address||"—")}</td><td class="audit-details">${esc(text||"—")}</td><td>${date(a.created_at)}</td></tr>`; }).join(""):emptyRow(5,"No audit events yet"); } catch(e) { toast(e.message,"error"); } }
 async function loadRefs() { try { const rows=await api("/api/referrals"); $("myRef").textContent=me?.username==="admin"?"RNTXADMIN":"Your reseller referral code is shown in Manage Users"; $("refBody").innerHTML=rows.length?rows.map(x=>`<div class="ref-row"><span class="avatar">${esc(x.username[0]).toUpperCase()}</span><div><b>${esc(x.username)}</b><small>${esc(x.referral_code)}</small></div><span class="status-pill ${x.active?"active":"blocked"}"><i></i>${x.active?"ACTIVE":"BLOCKED"}</span></div>`).join(""):'<div class="empty-state">No referred users yet.</div>'; } catch(e) { toast(e.message,"error"); } }
 function openModal(id) { $(id).classList.remove("hidden"); setTimeout(() => $(id).classList.add("open"), 10); }
 function closeModal(id) { $(id).classList.remove("open"); setTimeout(() => $(id).classList.add("hidden"), 180); }

@@ -96,6 +96,15 @@ CREATE TABLE IF NOT EXISTS transactions (
   related_license_id INTEGER,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_type TEXT NOT NULL,
+  user_id INTEGER,
+  username TEXT,
+  ip_address TEXT,
+  metadata TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 `);
 
 const defaultPlans = [
@@ -131,6 +140,42 @@ function makeKey() {
 function makeId(prefix) {
   return `${prefix}-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
 }
+function recordAudit(req, eventType, metadata = {}, user = req.session?.user || null) {
+  try {
+    const safeMetadata = JSON.stringify(metadata).slice(0, 2000);
+    db.prepare(`INSERT INTO audit_logs(event_type,user_id,username,ip_address,metadata)
+      VALUES(?,?,?,?,?)`).run(eventType, user?.id || null, user?.username || metadata.username || null, req.ip || null, safeMetadata);
+  } catch (error) {
+    console.error("Audit log write failed:", error.message);
+  }
+}
+const rateBuckets = new Map();
+function consumeRateLimit(key, windowMs, max) {
+  const now = Date.now();
+  const existing = rateBuckets.get(key);
+  if (!existing || existing.resetAt <= now) {
+    rateBuckets.set(key, {count: 1, resetAt: now + windowMs});
+    if (rateBuckets.size > 5000) {
+      for (const [bucketKey, bucket] of rateBuckets) if (bucket.resetAt <= now) rateBuckets.delete(bucketKey);
+    }
+    return {allowed: true, retryAfter: 0};
+  }
+  existing.count += 1;
+  return {
+    allowed: existing.count <= max,
+    retryAfter: Math.max(1, Math.ceil((existing.resetAt - now) / 1000))
+  };
+}
+function rejectRateLimit(req, res, scope, windowMs, max, identity) {
+  const result = consumeRateLimit(`${scope}:${identity}`, windowMs, max);
+  if (!result.allowed) {
+    res.set("Retry-After", String(result.retryAfter));
+    recordAudit(req, "RATE_LIMITED", {scope});
+    res.status(429).json({error:"Too many requests. Please try again later.", retryAfter:result.retryAfter});
+    return true;
+  }
+  return false;
+}
 function expiryFromDuration(duration) {
   if (String(duration).toLowerCase() === "lifetime") return null;
   const m = String(duration).match(/(\d+)\s*(hour|hours|day|days|month|months|year|years)/i);
@@ -146,13 +191,24 @@ function expiryFromDuration(duration) {
 
 // Auth
 app.post("/api/login",(req,res)=>{
-  const {username,password}=req.body;
+  const username=String(req.body?.username || "").trim().slice(0,100);
+  const password=String(req.body?.password || "");
+  const identity=username.toLowerCase() || "unknown";
+  if (rejectRateLimit(req,res,"login-ip",15*60*1000,30,req.ip || "unknown") ||
+      rejectRateLimit(req,res,"login-account",15*60*1000,8,`${req.ip || "unknown"}:${identity}`)) return;
   const u=db.prepare("SELECT * FROM users WHERE username=? AND active=1").get(username);
-  if (!u || !bcrypt.compareSync(password,u.password_hash)) return res.status(401).json({error:"Invalid login"});
+  if (!u || !password || !bcrypt.compareSync(password,u.password_hash)) {
+    recordAudit(req, "LOGIN_FAILED", {username: username || "unknown"});
+    return res.status(401).json({error:"Invalid login"});
+  }
   req.session.user={id:u.id,username:u.username,role:u.role};
+  recordAudit(req, "LOGIN_SUCCESS", {}, req.session.user);
   res.json({ok:true,user:req.session.user});
 });
-app.post("/api/logout",(req,res)=>req.session.destroy(()=>res.json({ok:true})));
+app.post("/api/logout",(req,res)=>{
+  recordAudit(req, "LOGOUT");
+  req.session.destroy(()=>res.json({ok:true}));
+});
 app.get("/api/me",(req,res)=>res.json({user:req.session.user||null}));
 
 // Dashboard
@@ -182,6 +238,7 @@ app.patch("/api/plans/:id",adminOnly,(req,res)=>{
   const plan = db.prepare("SELECT id FROM pricing_plans WHERE id=?").get(req.params.id);
   if (!plan) return res.status(404).json({error:"Pricing plan not found"});
   db.prepare("UPDATE pricing_plans SET price=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").run(price, plan.id);
+  recordAudit(req, "PRICING_UPDATED", {planId:plan.id, price});
   res.json({ok:true});
 });
 
@@ -246,9 +303,13 @@ app.post("/api/keys",auth,(req,res)=>{
       }
       return {keys,orderId,balanceBefore:before,balanceAfter:after,unitPrice,total};
     })();
+    recordAudit(req, "LICENSE_PURCHASED", {
+      orderId: result.orderId, duration, quantity, total: result.total, unitPrice: result.unitPrice
+    });
     res.json({ok:true,...result,key:result.keys[0].key,expires_at:result.keys[0].expires_at});
   } catch (e) {
     const message = e.message.includes("Insufficient") ? e.message : (e.message.includes("inactive") ? e.message : "Could not create license purchase");
+    recordAudit(req, "LICENSE_PURCHASE_FAILED", {duration, quantity, reason: message});
     res.status(message.startsWith("Insufficient") || message === "Account is inactive" ? 400 : 500).json({error:message});
   }
 });
@@ -259,6 +320,7 @@ app.patch("/api/keys/:id",auth,(req,res)=>{
   const status=req.body.status;
   if(["UNUSED","ACTIVE","BLOCKED"].includes(status))
     db.prepare("UPDATE keys SET status=? WHERE id=?").run(status,row.id);
+  recordAudit(req, "LICENSE_STATUS_CHANGED", {keyId:row.id, status});
   res.json({ok:true});
 });
 app.delete("/api/keys/:id",auth,(req,res)=>{
@@ -266,23 +328,38 @@ app.delete("/api/keys/:id",auth,(req,res)=>{
   if(!row) return res.status(404).json({error:"Key not found"});
   if(req.session.user.role!=="admin" && row.owner_id!==req.session.user.id) return res.status(403).json({error:"Not allowed"});
   db.prepare("DELETE FROM keys WHERE id=?").run(row.id);
+  recordAudit(req, "LICENSE_DELETED", {keyId:row.id});
   res.json({ok:true});
 });
 
 // APK verification endpoint
 app.post("/api/activate",(req,res)=>{
+  if (rejectRateLimit(req,res,"activation-ip",60*1000,60,req.ip || "unknown")) return;
   const {licenseKey,deviceId}=req.body;
-  if(!licenseKey || !deviceId) return res.status(400).json({valid:false,error:"licenseKey and deviceId required"});
+  if(!licenseKey || !deviceId) {
+    recordAudit(req, "ACTIVATION_FAILED", {reason:"missing_fields"});
+    return res.status(400).json({valid:false,error:"licenseKey and deviceId required"});
+  }
   const k=db.prepare("SELECT * FROM keys WHERE license_key=?").get(licenseKey);
-  if(!k) return res.status(404).json({valid:false,error:"Invalid key"});
-  if(k.status==="BLOCKED") return res.status(403).json({valid:false,error:"Key blocked"});
+  if(!k) {
+    recordAudit(req, "ACTIVATION_FAILED", {reason:"invalid_key"});
+    return res.status(404).json({valid:false,error:"Invalid key"});
+  }
+  if(k.status==="BLOCKED") {
+    recordAudit(req, "ACTIVATION_FAILED", {keyId:k.id,reason:"blocked_key"});
+    return res.status(403).json({valid:false,error:"Key blocked"});
+  }
   if(k.expires_at && new Date(k.expires_at) <= new Date()) {
     db.prepare("UPDATE keys SET status='EXPIRED' WHERE id=?").run(k.id);
+    recordAudit(req, "ACTIVATION_FAILED", {keyId:k.id,reason:"expired_key"});
     return res.status(403).json({valid:false,error:"Key expired"});
   }
   const existing=db.prepare("SELECT id FROM devices WHERE key_id=? AND device_id=?").get(k.id,deviceId);
   if(!existing) {
-    if(k.devices_used >= k.max_devices) return res.status(403).json({valid:false,error:"Device limit reached"});
+    if(k.devices_used >= k.max_devices) {
+      recordAudit(req, "ACTIVATION_FAILED", {keyId:k.id,reason:"device_limit"});
+      return res.status(403).json({valid:false,error:"Device limit reached"});
+    }
     db.prepare("INSERT INTO devices(key_id,device_id) VALUES(?,?)").run(k.id,deviceId);
     db.prepare("UPDATE keys SET devices_used=devices_used+1,status='ACTIVE' WHERE id=?").run(k.id);
   }
@@ -307,12 +384,14 @@ app.post("/api/users",adminOnly,(req,res)=>{
   try {
     const info=db.prepare(`INSERT INTO users(username,password_hash,role,referral_code,parent_id,panel_expires_at)
       VALUES(?,?,?,?,?,?)`).run(username,hash,role,code,parentId||null,exp);
+    recordAudit(req, "USER_CREATED", {userId:info.lastInsertRowid, username, role});
     res.json({ok:true,id:info.lastInsertRowid,referral_code:code});
   } catch(e){res.status(400).json({error:"Username already exists"});}
 });
 app.patch("/api/users/:id",adminOnly,(req,res)=>{
   const active=req.body.active;
   if(active!==undefined) db.prepare("UPDATE users SET active=? WHERE id=?").run(active?1:0,req.params.id);
+  if(active!==undefined) recordAudit(req, "USER_STATUS_CHANGED", {userId:Number(req.params.id),active:Boolean(active)});
   res.json({ok:true});
 });
 
@@ -330,6 +409,7 @@ app.post("/api/users/:id/balance",adminOnly,(req,res)=>{
         VALUES(?,?,?,?,?,?,?)`).run(makeId("TXN"),user.id,"CREDIT",amount,before,after,description);
       return {username:user.username,balanceBefore:before,balanceAfter:after};
     })();
+    recordAudit(req, "WALLET_CREDITED", {userId:Number(req.params.id),amount:amount,balanceAfter:result.balanceAfter});
     res.json({ok:true,...result});
   } catch(e) { res.status(400).json({error:e.message || "Could not add balance"}); }
 });
@@ -341,6 +421,12 @@ app.get("/api/transactions",auth,(req,res)=>{
     LEFT JOIN users u ON u.id=t.user_id
     WHERE t.user_id=? ORDER BY t.id DESC LIMIT ?`).all(requested,limit);
   res.json(rows);
+});
+
+app.get("/api/audit-logs",adminOnly,(req,res)=>{
+  const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+  res.json(db.prepare(`SELECT id,event_type,user_id,username,ip_address,metadata,created_at
+    FROM audit_logs ORDER BY id DESC LIMIT ?`).all(limit));
 });
 
 app.get("/api/referrals",auth,(req,res)=>{
