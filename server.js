@@ -165,7 +165,8 @@ function adminOnly(req,res,next) {
   if (!req.session.user) return res.status(401).json({error:"Login required"});
   const user = db.prepare("SELECT id,username,role,active,panel_expires_at,balance,max_device_limit FROM users WHERE id=?").get(req.session.user.id);
   if (!user || !user.active) return res.status(403).json({error:"Panel blocked",code:"PANEL_BLOCKED"});
-  if (user.role !== "admin") return res.status(403).json({error:"Admin only"});
+  const mainAdmin = db.prepare("SELECT id FROM users WHERE role='admin' ORDER BY id ASC LIMIT 1").get();
+  if (user.role !== "admin" || !mainAdmin || user.id !== mainAdmin.id) return res.status(403).json({error:"Main admin only"});
   req.currentUser = user;
   req.session.user = {...req.session.user, ...user, max_device_limit:user.max_device_limit || 2000};
   next();
@@ -264,9 +265,10 @@ app.get("/api/me",(req,res)=>{
 
 function sendPanelPage(panel) {
   return (req,res) => {
-    const user = req.session.user && db.prepare("SELECT role,active,panel_expires_at FROM users WHERE id=?").get(req.session.user.id);
+    const user = req.session.user && db.prepare("SELECT id,role,active,panel_expires_at FROM users WHERE id=?").get(req.session.user.id);
+    const mainAdmin = db.prepare("SELECT id FROM users WHERE role='admin' ORDER BY id ASC LIMIT 1").get();
     if (user && !user.active) return res.status(403).send("Panel blocked");
-    if (user && panel === "admin" && user.role !== "admin") return res.status(403).send("Admin panel access required");
+    if (user && panel === "admin" && (user.role !== "admin" || !mainAdmin || user.id !== mainAdmin.id)) return res.status(403).send("Admin panel access required");
     if (user && panel === "reseller" && user.role !== "reseller") return res.status(403).send("Reseller panel access required");
     if (user && panel === "reseller" && panelExpired(user)) return res.status(403).send("Reseller panel access has expired");
     res.sendFile(path.join(__dirname, "public", "index.html"));
@@ -485,29 +487,69 @@ app.patch("/api/users/:id",adminOnly,(req,res)=>{
   const user = db.prepare("SELECT id,username,role,panel_expires_at,active,max_device_limit FROM users WHERE id=?").get(req.params.id);
   if (!user || user.role !== "reseller") return res.status(404).json({error:"Reseller not found"});
   const active=req.body.active;
-  if(active!==undefined) db.prepare("UPDATE users SET active=? WHERE id=?").run(active?1:0,req.params.id);
+  const hasUsername=Object.prototype.hasOwnProperty.call(req.body,"username");
+  const hasPassword=Object.prototype.hasOwnProperty.call(req.body,"password");
+  const nextUsername=hasUsername?String(req.body.username||"").trim().slice(0,100):user.username;
+  if(hasUsername && (!nextUsername || nextUsername.length<3)) return res.status(400).json({error:"Username must be at least 3 characters"});
+  const nextPassword=hasPassword?String(req.body.password||""):"";
+  if(hasPassword && nextPassword.length<8) return res.status(400).json({error:"Password must be at least 8 characters"});
+  if(active!==undefined && ![0,1,true,false].includes(active)) return res.status(400).json({error:"Invalid panel status"});
+  let nextMaxDeviceLimit=user.max_device_limit;
   if(req.body.maxDeviceLimit!==undefined) {
     const maxDeviceLimit = Number(req.body.maxDeviceLimit);
     if(!Number.isInteger(maxDeviceLimit) || !tierLimits.includes(maxDeviceLimit)) return res.status(400).json({error:"Maximum device limit must be one of the configured device tiers"});
-    db.prepare("UPDATE users SET max_device_limit=? WHERE id=?").run(maxDeviceLimit,req.params.id);
-    recordAudit(req,"RESELLER_DEVICE_LIMIT_UPDATED",{userId:Number(req.params.id),maxDeviceLimit});
+    nextMaxDeviceLimit=maxDeviceLimit;
   }
+  let nextPanelExpires=user.panel_expires_at;
   if (Object.prototype.hasOwnProperty.call(req.body, "panelDays")) {
     const rawDays = req.body.panelDays;
     if (rawDays !== null && rawDays !== "" && (!Number.isInteger(Number(rawDays)) || Number(rawDays) <= 0)) {
       return res.status(400).json({error:"Panel days must be a positive whole number or blank for lifetime"});
     }
-    let expires = null;
+    nextPanelExpires = null;
     if (rawDays !== null && rawDays !== "") {
       const d = new Date();
       d.setDate(d.getDate() + Number(rawDays));
-      expires = d.toISOString();
+      nextPanelExpires = d.toISOString();
     }
-    db.prepare("UPDATE users SET panel_expires_at=? WHERE id=?").run(expires,req.params.id);
-    recordAudit(req,"RESELLER_PANEL_EXPIRY_UPDATED",{userId:Number(req.params.id),panelDays:rawDays === "" || rawDays === null ? null : Number(rawDays),panelExpiresAt:expires});
   }
-  if(active!==undefined) recordAudit(req, "USER_STATUS_CHANGED", {userId:Number(req.params.id),active:Boolean(active)});
+  try {
+    db.transaction(() => {
+      if (hasUsername) db.prepare("UPDATE users SET username=? WHERE id=?").run(nextUsername,user.id);
+      if (hasPassword) db.prepare("UPDATE users SET password_hash=? WHERE id=?").run(bcrypt.hashSync(nextPassword,12),user.id);
+      if(active!==undefined) db.prepare("UPDATE users SET active=? WHERE id=?").run(active?1:0,user.id);
+      if(req.body.maxDeviceLimit!==undefined) db.prepare("UPDATE users SET max_device_limit=? WHERE id=?").run(nextMaxDeviceLimit,user.id);
+      if(Object.prototype.hasOwnProperty.call(req.body,"panelDays")) db.prepare("UPDATE users SET panel_expires_at=? WHERE id=?").run(nextPanelExpires,user.id);
+    })();
+  } catch(e) {
+    if(String(e.message).includes("UNIQUE")) return res.status(400).json({error:"Username already exists"});
+    return res.status(400).json({error:"Could not update reseller"});
+  }
+  if(hasUsername || hasPassword) recordAudit(req,"RESELLER_CREDENTIALS_UPDATED",{userId:user.id,previousUsername:user.username,newUsername:hasUsername?nextUsername:user.username,usernameChanged:hasUsername && nextUsername!==user.username,passwordReset:hasPassword});
+  if(req.body.maxDeviceLimit!==undefined) recordAudit(req,"RESELLER_DEVICE_LIMIT_UPDATED",{userId:user.id,maxDeviceLimit:nextMaxDeviceLimit});
+  if(Object.prototype.hasOwnProperty.call(req.body,"panelDays")) recordAudit(req,"RESELLER_PANEL_EXPIRY_UPDATED",{userId:user.id,panelExpiresAt:nextPanelExpires});
+  if(active!==undefined) recordAudit(req, "USER_STATUS_CHANGED", {userId:user.id,active:Boolean(active)});
   res.json({ok:true,user:db.prepare("SELECT id,username,role,panel_expires_at,active,max_device_limit,balance FROM users WHERE id=?").get(req.params.id)});
+});
+
+app.delete("/api/users/:id",adminOnly,(req,res)=>{
+  const user=db.prepare("SELECT id,username,role FROM users WHERE id=?").get(req.params.id);
+  if(!user || user.role!=="reseller") return res.status(404).json({error:"Reseller not found"});
+  const counts=db.prepare("SELECT COUNT(*) keys FROM keys WHERE owner_id=?").get(user.id);
+  try {
+    db.transaction(() => {
+      db.prepare("DELETE FROM devices WHERE key_id IN (SELECT id FROM keys WHERE owner_id=?)").run(user.id);
+      db.prepare("DELETE FROM keys WHERE owner_id=?").run(user.id);
+      db.prepare("DELETE FROM orders WHERE reseller_id=?").run(user.id);
+      db.prepare("DELETE FROM transactions WHERE user_id=?").run(user.id);
+      db.prepare("UPDATE users SET parent_id=NULL WHERE parent_id=?").run(user.id);
+      db.prepare("DELETE FROM users WHERE id=? AND role='reseller'").run(user.id);
+    })();
+    recordAudit(req,"RESELLER_DELETED",{userId:user.id,username:user.username,keysDeleted:counts.keys});
+    res.json({ok:true,deletedUserId:user.id});
+  } catch(e) {
+    res.status(400).json({error:"Could not delete reseller"});
+  }
 });
 
 app.post("/api/users/:id/balance",adminOnly,(req,res)=>{
@@ -527,6 +569,25 @@ app.post("/api/users/:id/balance",adminOnly,(req,res)=>{
     recordAudit(req, "WALLET_CREDITED", {userId:Number(req.params.id),amount:amount,balanceAfter:result.balanceAfter});
     res.json({ok:true,...result});
   } catch(e) { res.status(400).json({error:e.message || "Could not add balance"}); }
+});
+
+app.patch("/api/users/:id/balance",adminOnly,(req,res)=>{
+  const balance=Number(req.body.balance);
+  if(!Number.isInteger(balance) || balance<0 || balance>100000000) return res.status(400).json({error:"Balance must be a whole number between ₹0 and ₹100,000,000"});
+  const description=String(req.body.description||"Admin wallet balance adjustment").trim().slice(0,200)||"Admin wallet balance adjustment";
+  try {
+    const result=db.transaction(() => {
+      const user=db.prepare("SELECT id,username,balance,role FROM users WHERE id=?").get(req.params.id);
+      if(!user || user.role!=="reseller") throw new Error("Reseller not found");
+      const before=user.balance||0, delta=balance-before;
+      db.prepare("UPDATE users SET balance=? WHERE id=? AND balance=?").run(balance,user.id,before);
+      db.prepare(`INSERT INTO transactions(transaction_id,user_id,type,amount,balance_before,balance_after,description,performed_by,performed_by_username)
+        VALUES(?,?,?,?,?,?,?,?,?)`).run(makeId("TXN"),user.id,"BALANCE_ADJUSTMENT",delta,before,balance,description,req.currentUser.id,req.currentUser.username);
+      return {username:user.username,balanceBefore:before,balanceAfter:balance};
+    })();
+    recordAudit(req,"WALLET_BALANCE_ADJUSTED",{userId:Number(req.params.id),balanceBefore:result.balanceBefore,balanceAfter:result.balanceAfter});
+    res.json({ok:true,...result});
+  } catch(e) { res.status(400).json({error:e.message||"Could not update balance"}); }
 });
 
 app.get("/api/transactions",auth,(req,res)=>{

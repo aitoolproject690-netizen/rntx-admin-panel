@@ -111,7 +111,7 @@ async function loadUsers(){
   if(me.role!=="admin")return;
   fillLimitSelect("nmax",2000);
   const rows=await api("/api/users");userCache=new Map(rows.map(u=>[u.id,u]));
-  $("usersBody").innerHTML=rows.map(u=>`<tr><td>${esc(u.username)}</td><td>${esc(u.role)}</td><td><span class="pill ${panelStatus(u)==="ACTIVE"?"":"danger-pill"}">${panelStatus(u)}</span></td><td>${formatDate(u.panel_expires_at)}</td><td>₹${Number(u.balance||0).toLocaleString("en-IN")}</td><td>${u.role==="reseller"?u.max_device_limit:"—"}</td><td>${u.role==="reseller"?`<button class="small" onclick="openBalance(${u.id})">ADD BALANCE</button><button class="small" onclick="openEdit(${u.id})">EDIT</button><button class="small ${u.active?"danger":""}" onclick="userActive(${u.id},${u.active?0:1})">${u.active?"BLOCK PANEL":"UNBLOCK PANEL"}</button>`:"—"}</td></tr>`).join("")||"<tr><td colspan=7>No resellers yet.</td></tr>";
+  $("usersBody").innerHTML=rows.map(u=>`<tr><td>${esc(u.username)}</td><td>${esc(u.role)}</td><td><span class="pill ${panelStatus(u)==="ACTIVE"?"":"danger-pill"}">${panelStatus(u)}</span></td><td>${formatDate(u.panel_expires_at)}</td><td>₹${Number(u.balance||0).toLocaleString("en-IN")}</td><td>${u.role==="reseller"?u.max_device_limit:"—"}</td><td>${u.role==="reseller"?`<button class="small" onclick="openBalance(${u.id})">ADD/EDIT BALANCE</button><button class="small" onclick="openEdit(${u.id})">EDIT</button><button class="small ${u.active?"danger":""}" onclick="userActive(${u.id},${u.active?0:1})">${u.active?"BLOCK PANEL":"UNBLOCK PANEL"}</button><button class="small danger" onclick="deleteReseller(${u.id})">DELETE</button>`:"—"}</td></tr>`).join("")||"<tr><td colspan=7>No resellers yet.</td></tr>";
 }
 async function createUser(){
   try{const d=await api("/api/users",{method:"POST",body:JSON.stringify({username:$("nu").value,password:$("np").value,days:$("nd").value||null,maxDeviceLimit:Number($("nmax").value)})});alert("Reseller created. Referral: "+d.referral_code);$("nu").value=$("np").value=$("nd").value="";loadUsers()}
@@ -120,7 +120,7 @@ async function createUser(){
 async function userActive(id,active){try{await api("/api/users/"+id,{method:"PATCH",body:JSON.stringify({active})});loadUsers()}catch(e){alert(e.message)}}
 function openBalance(id){
   const u=userCache.get(id);if(!u)return;
-  balanceUserId=id;$("balanceFor").textContent=`Reseller: ${u.username}`;$("balanceCurrent").textContent=`₹${Number(u.balance||0).toLocaleString("en-IN")}`;$("balanceAmount").value="";$("balanceMsg").textContent="";$("balanceModal").classList.remove("hidden");$("balanceAmount").focus();
+  balanceUserId=id;$("balanceFor").textContent=`Reseller: ${u.username}`;$("balanceCurrent").textContent=`₹${Number(u.balance||0).toLocaleString("en-IN")}`;$("balanceAmount").value="";$("balanceExact").value="";$("balanceMsg").textContent="";$("balanceModal").classList.remove("hidden");$("balanceAmount").focus();
 }
 async function addBalance(){
   try{
@@ -128,14 +128,33 @@ async function addBalance(){
     closeModal("balanceModal");alert(`New balance: ₹${Number(d.balanceAfter).toLocaleString("en-IN")}`);loadUsers();loadDash();
   }catch(e){$("balanceMsg").textContent=e.message}
 }
+async function setBalance(){
+  const value=Number($("balanceExact").value);
+  if(!Number.isInteger(value)||value<0){$("balanceMsg").textContent="Enter a valid non-negative balance.";return}
+  if(!confirm("Confirm setting this reseller's exact wallet balance?"))return;
+  try{
+    const d=await api(`/api/users/${balanceUserId}/balance`,{method:"PATCH",body:JSON.stringify({balance:value,description:$("balanceDescription").value||"Admin wallet balance adjustment"})});
+    closeModal("balanceModal");alert(`New balance: ₹${Number(d.balanceAfter).toLocaleString("en-IN")}`);loadUsers();loadDash();
+  }catch(e){$("balanceMsg").textContent=e.message}
+}
 function openEdit(id){
   const u=userCache.get(id);if(!u)return;
-  $("editUserId").value=id;
+  $("editUserId").value=id;$("editUsername").value=u.username;$("editPassword").value="";
   const days=u.panel_expires_at?Math.max(1,Math.ceil((new Date(u.panel_expires_at)-Date.now())/86400000)):"";
   $("editPanelDays").value=days;fillLimitSelect("editMaxDevices",u.max_device_limit);$("editMsg").textContent="";$("editModal").classList.remove("hidden");
 }
 async function saveUserEdit(){
-  try{await api(`/api/users/${$("editUserId").value}`,{method:"PATCH",body:JSON.stringify({panelDays:$("editPanelDays").value,maxDeviceLimit:Number($("editMaxDevices").value)})});closeModal("editModal");loadUsers()}catch(e){$("editMsg").textContent=e.message}
+  const id=Number($("editUserId").value),u=userCache.get(id),username=$("editUsername").value.trim(),password=$("editPassword").value;
+  const usernameChanged=username!==u.username,passwordReset=Boolean(password);
+  if((usernameChanged||passwordReset)&&!confirm(`Confirm ${usernameChanged&&passwordReset?"changing the username and resetting the password":usernameChanged?"changing the username":"resetting the password"} for ${u.username}?`))return;
+  const body={username,panelDays:$("editPanelDays").value,maxDeviceLimit:Number($("editMaxDevices").value)};
+  if(passwordReset)body.password=password;
+  try{await api(`/api/users/${id}`,{method:"PATCH",body:JSON.stringify(body)});closeModal("editModal");loadUsers()}catch(e){$("editMsg").textContent=e.message}
+}
+async function deleteReseller(id=Number($("editUserId").value)){
+  const u=userCache.get(id);if(!u)return;
+  if(!confirm(`Permanently delete reseller "${u.username}" and all of their license/order data? This cannot be undone.`))return;
+  try{await api(`/api/users/${id}`,{method:"DELETE"});closeModal("editModal");alert("Reseller deleted.");loadUsers()}catch(e){alert(e.message)}
 }
 function closeModal(id){$(id).classList.add("hidden")}
 async function loadPricing(){
