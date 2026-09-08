@@ -1,0 +1,1 @@
+- [RNTX access boundaries](rntx-access-boundaries.md) — panel access, wallet funds, reseller limits, and APK license activation stay independently enforced.

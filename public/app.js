@@ -1,28 +1,159 @@
 let me=null;
 let pricingTiers=[];
+let userCache=new Map();
+let balanceUserId=null;
+const PANEL=location.pathname.startsWith("/reseller")?"reseller":"admin";
+const DEVICE_LIMITS=[1,10,100,500,1000,2000];
 const $=id=>document.getElementById(id);
-async function api(url,opt={}){const r=await fetch(url,{headers:{"Content-Type":"application/json"},...opt});let d={};try{d=await r.json()}catch{}if(!r.ok)throw Error(d.error||"Request failed");return d}
-async function boot(){try{const d=await api("/api/me");if(d.user){me=d.user;$("login").classList.add("hidden");$("app").classList.remove("hidden");show("dashboard")} }catch{}}
-async function login(){try{const d=await api("/api/login",{method:"POST",body:JSON.stringify({username:$("user").value,password:$("pass").value})});me=d.user;$("login").classList.add("hidden");$("app").classList.remove("hidden");show("dashboard")}catch(e){$("loginMsg").textContent=e.message}}
-async function logout(){await api("/api/logout",{method:"POST"});location.reload()}
+
+async function api(url,opt={}){
+  const r=await fetch(url,{headers:{"Content-Type":"application/json"},...opt});
+  let d={};try{d=await r.json()}catch{}
+  if(!r.ok){const e=Error(d.error||"Request failed");e.code=d.code;e.status=r.status;throw e}
+  return d;
+}
+function routeForRole(role){return role==="reseller"?"/reseller":"/admin"}
+function formatDate(value){return value?new Date(value).toLocaleString():"LIFETIME"}
+function escapeAttr(value){return String(value??"").replace(/\\/g,"\\\\").replace(/'/g,"\\'")}
+function panelStatus(user){
+  if(!user.active)return "BLOCKED";
+  if(user.panel_expires_at&&new Date(user.panel_expires_at)<=new Date())return "EXPIRED";
+  return "ACTIVE";
+}
+function applyRoleUI(){
+  document.querySelectorAll(".admin-only").forEach(el=>el.classList.toggle("hidden",me?.role!=="admin"));
+  document.querySelectorAll(".reseller-only").forEach(el=>el.classList.toggle("hidden",me?.role!=="reseller"));
+  $("brandRole").textContent=me?.role==="reseller"?"RESELLER PANEL":"ADMIN PANEL";
+}
+async function boot(){
+  try{
+    const d=await api("/api/me");
+    if(d.user){
+      me=d.user;
+      if(me.role!=="admin"&&PANEL!=="reseller"||me.role==="admin"&&PANEL!=="admin"){location.href=routeForRole(me.role);return}
+      $("login").classList.add("hidden");$("app").classList.remove("hidden");applyRoleUI();show("dashboard");
+    }
+  }catch(e){if(e.code)$("loginMsg").textContent=e.message}
+}
+async function login(){
+  try{
+    const d=await api("/api/login",{method:"POST",body:JSON.stringify({username:$("user").value,password:$("pass").value,panel:PANEL})});
+    me=d.user;location.href=routeForRole(me.role);
+  }catch(e){$("loginMsg").textContent=e.message}
+}
+async function logout(){await api("/api/logout",{method:"POST"});location.href=routeForRole(PANEL==="reseller"?"reseller":"admin")}
 function toggleNav(){$("nav").classList.toggle("navopen")}
-function show(id){document.querySelectorAll(".page").forEach(x=>x.classList.add("hidden"));$(id).classList.remove("hidden");$("nav").classList.remove("navopen");if(id==="dashboard")loadDash();if(id==="keys")loadKeys();if(id==="create")loadCreate();if(id==="users")loadUsers();if(id==="pricing")loadPricing();if(id==="referrals")loadRefs()}
-async function loadDash(){const d=await api("/api/dashboard");$("stats").innerHTML=[["🔑",d.total,"Total Keys"],["🔓",d.used,"Used Keys"],["🔒",d.unused,"Unused Keys"],["👥",d.users,"Total Users"],["⛔",d.blocked,"Blocked Keys"],["🏷️",d.resellers,"Resellers"]].map(x=>`<div class="stat"><div>${x[0]}</div><b>${x[1]}</b><span>${x[2]}</span></div>`).join("");$("usage").innerHTML=`${d.total?Math.round(d.used/d.total*100):0}% used — ${d.used} / ${d.total} keys`}
-async function loadKeys(){const rows=await api("/api/keys?q="+encodeURIComponent($("search")?.value||""));$("keysBody").innerHTML=rows.map(k=>`<tr><td>${k.license_key}</td><td>${esc(k.game)}</td><td>${k.expires_at?new Date(k.expires_at).toLocaleString():"LIFETIME"}</td><td><span class="pill">${k.status}</span></td><td>${k.devices_used}/${k.max_devices}</td><td><button class="small" onclick="toggleKey(${k.id},'${k.status==="BLOCKED"?"UNUSED":"BLOCKED"}')">${k.status==="BLOCKED"?"UNBLOCK":"BLOCK"}</button><button class="small danger" onclick="delKey(${k.id})">DELETE</button></td></tr>`).join("")}
-async function loadCreate(){try{pricingTiers=await api("/api/pricing-tiers");renderCreateOptions()}catch(e){$("copyMsg").textContent=e.message}}
-function renderCreateOptions(){const durations=[...new Set(pricingTiers.filter(x=>x.active).map(x=>x.duration))];const oldDuration=$("duration").value;const oldDevices=$("devices").value;$("duration").innerHTML=durations.map(x=>`<option>${esc(x)}</option>`).join("");if(durations.includes(oldDuration))$("duration").value=oldDuration;$("duration").onchange=renderDeviceOptions;renderDeviceOptions(oldDevices)}
-function renderDeviceOptions(preferred){const duration=$("duration").value;const max=me?.role==="reseller"?Number(me.max_device_limit||2000):2000;const options=pricingTiers.filter(x=>x.active&&x.duration===duration&&x.device_limit<=max).sort((a,b)=>a.device_limit-b.device_limit);$("devices").innerHTML=options.map(x=>`<option value="${x.device_limit}">${x.device_limit} device${x.device_limit===1?"":"s"} — ₹${x.price}</option>`).join("");if(preferred&&options.some(x=>String(x.device_limit)===String(preferred)))$("devices").value=preferred}
-async function createKey(){try{const d=await api("/api/keys",{method:"POST",body:JSON.stringify({game:$("game").value,duration:$("duration").value,maxDevices:Number($("devices").value)})});const keys=d.keys?.length?d.keys:[{key:d.key}];$("newKey").classList.remove("hidden");$("newKey").innerHTML=keys.map((item,i)=>`<div class="copy-row"><code>${esc(item.key)}</code><button class="copy-button" onclick="copyKey('${esc(item.key)}',this)">COPY KEY</button></div>`).join("");$("copyMsg").textContent="";show("create");toastCopyMessage("License generated successfully.");loadKeys()}catch(e){$("copyMsg").textContent=e.message}}
-async function copyKey(key,button){try{if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(key)}else{const area=document.createElement("textarea");area.value=key;area.setAttribute("readonly","");area.style.position="fixed";area.style.opacity="0";document.body.appendChild(area);area.select();document.execCommand("copy");area.remove()}button.textContent="COPIED";$("copyMsg").textContent="License key copied!";setTimeout(()=>{if(button.isConnected)button.textContent="COPY KEY"},1800)}catch(e){$("copyMsg").textContent="Unable to copy key. Please copy it manually.";}}
+function show(id){
+  if(id==="users"&&me?.role!=="admin")return;
+  document.querySelectorAll(".page").forEach(x=>x.classList.add("hidden"));
+  $(id).classList.remove("hidden");$("nav").classList.remove("navopen");
+  if(id==="dashboard")loadDash();
+  if(id==="keys")loadKeys();
+  if(id==="create")loadCreate();
+  if(id==="users")loadUsers();
+  if(id==="pricing")loadPricing();
+  if(id==="transactions")loadTransactions();
+  if(id==="referrals")loadRefs();
+}
+async function loadDash(){
+  const d=await api("/api/dashboard");
+  $("stats").innerHTML=[["🔑",d.total,"Total Keys"],["🔓",d.used,"Used Keys"],["🔒",d.unused,"Unused Keys"],["👥",d.users,"Total Users"],["⛔",d.blocked,"Blocked Keys"],["🏷️",d.resellers,"Resellers"]].map(x=>`<div class="stat"><div>${x[0]}</div><b>${x[1]}</b><span>${x[2]}</span></div>`).join("");
+  $("usage").innerHTML=`${d.total?Math.round(d.used/d.total*100):0}% used — ${d.used} / ${d.total} keys`;
+  $("walletSummary").innerHTML=me.role==="reseller"?`<h3>WALLET BALANCE</h3><div class="wallet-amount">₹${Number(d.wallet||0).toLocaleString("en-IN")}</div><p>Available for license purchases. Panel days and license expiry are separate.</p>`:"<h3>ADMIN CONTROL</h3><p>Manage reseller panel days, wallet balances, and maximum device limits from Manage Users.</p>";
+  if(me.role==="reseller")$("recentTransactions").innerHTML=d.recentTransactions?.length?d.recentTransactions.map(transactionLine).join(""):"<p>No transactions yet.</p>";
+}
+async function loadKeys(){
+  const rows=await api("/api/keys?q="+encodeURIComponent($("search")?.value||""));
+  $("keysBody").innerHTML=rows.map(k=>`<tr><td>${esc(k.license_key)}</td><td>${esc(k.game)}</td><td>${formatDate(k.expires_at)}</td><td><span class="pill">${esc(k.status)}</span></td><td>${k.devices_used}/${k.max_devices}</td><td><button class="small" onclick="toggleKey(${k.id},'${k.status==="BLOCKED"?"UNUSED":"BLOCKED"}')">${k.status==="BLOCKED"?"UNBLOCK":"BLOCK"}</button>${me.role==="admin"?`<button class="small danger" onclick="delKey(${k.id})">DELETE</button>`:""}</td></tr>`).join("")||"<tr><td colspan=6>No generated keys yet.</td></tr>";
+}
+async function loadCreate(){
+  try{pricingTiers=await api("/api/pricing-tiers");renderCreateOptions()}catch(e){$("copyMsg").textContent=e.message}
+}
+function renderCreateOptions(){
+  const durations=[...new Set(pricingTiers.filter(x=>x.active).map(x=>x.duration))];
+  const oldDuration=$("duration").value;const oldDevices=$("devices").value;
+  $("duration").innerHTML=durations.map(x=>`<option>${esc(x)}</option>`).join("");
+  if(durations.includes(oldDuration))$("duration").value=oldDuration;
+  $("duration").onchange=()=>renderDeviceOptions();
+  renderDeviceOptions(oldDevices);
+}
+function renderDeviceOptions(preferred){
+  const duration=$("duration").value;
+  const max=me?.role==="reseller"?Number(me.max_device_limit||2000):2000;
+  const options=pricingTiers.filter(x=>x.active&&x.duration===duration&&x.device_limit<=max).sort((a,b)=>a.device_limit-b.device_limit);
+  $("devices").innerHTML=options.map(x=>`<option value="${x.device_limit}">${x.device_limit} device${x.device_limit===1?"":"s"} — ₹${Number(x.price).toLocaleString("en-IN")}</option>`).join("");
+  if(preferred&&options.some(x=>String(x.device_limit)===String(preferred)))$("devices").value=preferred;
+}
+function fillLimitSelect(id,value=2000){
+  const max=me?.role==="reseller"?Number(me.max_device_limit||2000):2000;
+  $(id).innerHTML=DEVICE_LIMITS.filter(n=>n<=max).map(n=>`<option value="${n}" ${Number(value)===n?"selected":""}>${n}</option>`).join("");
+}
+async function createKey(){
+  try{
+    const d=await api("/api/keys",{method:"POST",body:JSON.stringify({game:$("game").value,duration:$("duration").value,maxDevices:Number($("devices").value)})});
+    const keys=d.keys?.length?d.keys:[{key:d.key}];
+    $("newKey").classList.remove("hidden");
+    $("newKey").innerHTML=keys.map(item=>`<div class="copy-row"><code>${esc(item.key)}</code><button class="copy-button" onclick="copyKey('${escapeAttr(item.key)}',this)">COPY KEY</button></div>`).join("");
+    $("copyMsg").textContent="";toastCopyMessage("License generated successfully.");loadKeys();loadDash();
+  }catch(e){$("copyMsg").textContent=e.message}
+}
+async function copyKey(key,button){
+  try{
+    if(navigator.clipboard&&window.isSecureContext)await navigator.clipboard.writeText(key);
+    else{const area=document.createElement("textarea");area.value=key;area.setAttribute("readonly","");area.style.position="fixed";area.style.opacity="0";document.body.appendChild(area);area.select();document.execCommand("copy");area.remove()}
+    button.textContent="COPIED";$("copyMsg").textContent="License key copied!";setTimeout(()=>{if(button.isConnected)button.textContent="COPY KEY"},1800);
+  }catch(e){$("copyMsg").textContent="Unable to copy key. Please copy it manually."}
+}
 function toastCopyMessage(message){$("copyMsg").textContent=message;setTimeout(()=>{if($("copyMsg"))$("copyMsg").textContent=""},2200)}
-async function toggleKey(id,status){await api("/api/keys/"+id,{method:"PATCH",body:JSON.stringify({status})});loadKeys()}
+async function toggleKey(id,status){try{await api("/api/keys/"+id,{method:"PATCH",body:JSON.stringify({status})});loadKeys()}catch(e){alert(e.message)}}
 async function delKey(id){if(confirm("Delete this key?")){await api("/api/keys/"+id,{method:"DELETE"});loadKeys()}}
-async function loadUsers(){if(me.role!=="admin"){ $("usersBody").innerHTML="<tr><td colspan=7>Admin only</td></tr>";return}const rows=await api("/api/users");$("usersBody").innerHTML=rows.map(u=>`<tr><td>${esc(u.username)}</td><td>${u.role}</td><td>${u.referral_code||"-"}</td><td>${u.active?"ACTIVE":"BLOCKED"}</td><td>₹${u.balance}</td><td>${u.role==="admin"?"—":`<select class="limit-select" onchange="updateUserLimit(${u.id},this.value)">${[1,10,100,1000,2000].map(n=>`<option value="${n}" ${Number(u.max_device_limit||2000)===n?"selected":""}>${n}</option>`).join("")}</select>`}</td><td>${u.role==="admin"?"":`<button class="small" onclick="userActive(${u.id},${u.active?0:1})">${u.active?"BLOCK":"ACTIVATE"}</button>`}</td></tr>`).join("")}
-async function createUser(){const d=await api("/api/users",{method:"POST",body:JSON.stringify({username:$("nu").value,password:$("np").value,days:$("nd").value||null})});alert("Reseller created. Referral: "+d.referral_code);$("nu").value=$("np").value=$("nd").value="";loadUsers()}
-async function userActive(id,active){await api("/api/users/"+id,{method:"PATCH",body:JSON.stringify({active})});loadUsers()}
-async function updateUserLimit(id,maxDeviceLimit){try{await api("/api/users/"+id,{method:"PATCH",body:JSON.stringify({maxDeviceLimit:Number(maxDeviceLimit)})});alert("Maximum device limit updated.");if(me?.id===id){me.max_device_limit=Number(maxDeviceLimit);renderDeviceOptions()}}catch(e){alert(e.message);loadUsers()}}
-async function loadPricing(){if(me.role!=="admin"){return}try{const rows=await api("/api/pricing-tiers");$("pricingBody").innerHTML=rows.map(t=>`<tr><td>${esc(t.duration)}</td><td>${t.device_limit}</td><td><input class="price-edit" id="tier-${t.id}" type="number" min="0" value="${t.price}"></td><td><button class="small" onclick="saveTier(${t.id})">SAVE</button></td></tr>`).join("")}catch(e){alert(e.message)}}
-async function saveTier(id){try{await api("/api/pricing-tiers/"+id,{method:"PATCH",body:JSON.stringify({price:Number($("tier-"+id).value)})});alert("Pricing updated.");loadPricing();if($("create")&&!$("create").classList.contains("hidden"))loadCreate()}catch(e){alert(e.message)}}
-async function loadRefs(){const rows=await api("/api/referrals");$("myRef").textContent=me?.username==="admin"?"RNTXADMIN":"Your reseller referral code is shown in Manage Users";$("refBody").innerHTML=rows.length?rows.map(x=>`<p>👤 ${esc(x.username)} — ${x.active?"ACTIVE":"BLOCKED"} — ${x.referral_code}</p>`).join(""):"<p>No referred users yet.</p>"}
+async function loadUsers(){
+  if(me.role!=="admin")return;
+  fillLimitSelect("nmax",2000);
+  const rows=await api("/api/users");userCache=new Map(rows.map(u=>[u.id,u]));
+  $("usersBody").innerHTML=rows.map(u=>`<tr><td>${esc(u.username)}</td><td>${esc(u.role)}</td><td><span class="pill ${panelStatus(u)==="ACTIVE"?"":"danger-pill"}">${panelStatus(u)}</span></td><td>${formatDate(u.panel_expires_at)}</td><td>₹${Number(u.balance||0).toLocaleString("en-IN")}</td><td>${u.role==="reseller"?u.max_device_limit:"—"}</td><td>${u.role==="reseller"?`<button class="small" onclick="openBalance(${u.id})">ADD BALANCE</button><button class="small" onclick="openEdit(${u.id})">EDIT</button><button class="small ${u.active?"danger":""}" onclick="userActive(${u.id},${u.active?0:1})">${u.active?"BLOCK PANEL":"UNBLOCK PANEL"}</button>`:"—"}</td></tr>`).join("")||"<tr><td colspan=7>No resellers yet.</td></tr>";
+}
+async function createUser(){
+  try{const d=await api("/api/users",{method:"POST",body:JSON.stringify({username:$("nu").value,password:$("np").value,days:$("nd").value||null,maxDeviceLimit:Number($("nmax").value)})});alert("Reseller created. Referral: "+d.referral_code);$("nu").value=$("np").value=$("nd").value="";loadUsers()}
+  catch(e){alert(e.message)}
+}
+async function userActive(id,active){try{await api("/api/users/"+id,{method:"PATCH",body:JSON.stringify({active})});loadUsers()}catch(e){alert(e.message)}}
+function openBalance(id){
+  const u=userCache.get(id);if(!u)return;
+  balanceUserId=id;$("balanceFor").textContent=`Reseller: ${u.username}`;$("balanceCurrent").textContent=`₹${Number(u.balance||0).toLocaleString("en-IN")}`;$("balanceAmount").value="";$("balanceMsg").textContent="";$("balanceModal").classList.remove("hidden");$("balanceAmount").focus();
+}
+async function addBalance(){
+  try{
+    const d=await api(`/api/users/${balanceUserId}/balance`,{method:"POST",body:JSON.stringify({amount:Number($("balanceAmount").value),description:$("balanceDescription").value})});
+    closeModal("balanceModal");alert(`New balance: ₹${Number(d.balanceAfter).toLocaleString("en-IN")}`);loadUsers();loadDash();
+  }catch(e){$("balanceMsg").textContent=e.message}
+}
+function openEdit(id){
+  const u=userCache.get(id);if(!u)return;
+  $("editUserId").value=id;
+  const days=u.panel_expires_at?Math.max(1,Math.ceil((new Date(u.panel_expires_at)-Date.now())/86400000)):"";
+  $("editPanelDays").value=days;fillLimitSelect("editMaxDevices",u.max_device_limit);$("editMsg").textContent="";$("editModal").classList.remove("hidden");
+}
+async function saveUserEdit(){
+  try{await api(`/api/users/${$("editUserId").value}`,{method:"PATCH",body:JSON.stringify({panelDays:$("editPanelDays").value,maxDeviceLimit:Number($("editMaxDevices").value)})});closeModal("editModal");loadUsers()}catch(e){$("editMsg").textContent=e.message}
+}
+function closeModal(id){$(id).classList.add("hidden")}
+async function loadPricing(){
+  try{
+    const rows=await api("/api/pricing-tiers");
+    $("pricingBody").innerHTML=rows.map(t=>`<tr><td>${esc(t.duration)}</td><td>${t.device_limit}</td><td>${me.role==="admin"?`<input class="price-edit" id="tier-${t.id}" type="number" min="0" value="${t.price}">`:`₹${Number(t.price).toLocaleString("en-IN")}`}</td>${me.role==="admin"?`<td><button class="small" onclick="saveTier(${t.id})">SAVE</button></td>`:""}</tr>`).join("");
+  }catch(e){alert(e.message)}
+}
+async function saveTier(id){try{await api("/api/pricing-tiers/"+id,{method:"PATCH",body:JSON.stringify({price:Number($("tier-"+id).value)})});alert("Pricing updated.");loadPricing();if(!$("create").classList.contains("hidden"))loadCreate()}catch(e){alert(e.message)}}
+function transactionLine(t){return `<div class="transaction-line"><span>${formatDate(t.created_at)}</span><b class="${t.amount<0?"debit":"credit"}">${t.amount<0?"":"+"}₹${Math.abs(Number(t.amount)).toLocaleString("en-IN")}</b><span>${esc(t.type)} — ${esc(t.description)}</span></div>`}
+async function loadTransactions(){
+  const rows=await api("/api/transactions");
+  $("transactionsBody").innerHTML=rows.map(t=>`<tr><td>${formatDate(t.created_at)}</td><td>${esc(t.type)}</td><td class="${t.amount<0?"debit":"credit"}">${t.amount<0?"":"+"}₹${Math.abs(Number(t.amount)).toLocaleString("en-IN")}</td><td>₹${Number(t.balance_before).toLocaleString("en-IN")}</td><td>₹${Number(t.balance_after).toLocaleString("en-IN")}</td><td>${esc(t.description)}</td></tr>`).join("")||"<tr><td colspan=6>No transactions yet.</td></tr>";
+}
+async function loadRefs(){
+  const rows=await api("/api/referrals");
+  $("myRef").textContent=me?.username==="admin"?"RNTXADMIN":"Your reseller referral code is shown in your account";
+  $("refBody").innerHTML=rows.length?rows.map(x=>`<p>👤 ${esc(x.username)} — ${x.active?"ACTIVE":"BLOCKED"} — ${esc(x.referral_code)}</p>`).join(""):"<p>No referred users yet.</p>";
+}
 function esc(s){return String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]))}
 boot();

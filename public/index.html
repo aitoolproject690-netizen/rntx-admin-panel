@@ -18,18 +18,21 @@
 <header><div class="brand">🛡️ <b>RNTX ADMIN PANEL</b></div><button class="menu" onclick="toggleNav()">☰</button></header>
 <nav id="nav">
  <button onclick="show('dashboard')">⌂ Dashboard</button>
- <button onclick="show('keys')">🔑 Keys Management</button>
- <button onclick="show('create')">⚙️ Create License</button>
- <button onclick="show('users')">👥 Manage Users</button>
+ <button onclick="show('keys')">🔑 Generated Keys</button>
+ <button onclick="show('create')">⚙️ Generate License</button>
+ <button id="usersNav" class="admin-only" onclick="show('users')">👥 Manage Users</button>
  <button onclick="show('pricing')">💰 Pricing</button>
  <button onclick="show('referrals')">🔗 Referral Network</button>
+ <button onclick="show('transactions')">💳 Transactions</button>
  <button onclick="logout()">⇥ Logout</button>
 </nav>
 
 <main>
 <section id="dashboard" class="page">
  <h2>DASHBOARD</h2><div id="stats" class="grid"></div>
+ <div id="walletSummary" class="card"></div>
  <div class="card"><h3>KEY USAGE</h3><div id="usage"></div></div>
+ <div class="card reseller-only"><h3>RECENT TRANSACTIONS</h3><div id="recentTransactions"></div></div>
 </section>
 
 <section id="keys" class="page hidden">
@@ -48,23 +51,30 @@
 </section>
 
 <section id="users" class="page hidden">
- <h2>MANAGE USERS / RESELLERS</h2>
+  <h2>MANAGE USERS / RESELLERS</h2>
  <div class="card formcard">
   <h3>Create Reseller</h3><input id="nu" placeholder="Username"><input id="np" placeholder="Password" type="password">
-  <input id="nd" placeholder="Panel days (blank = lifetime)" type="number"><button onclick="createUser()">CREATE RESELLER</button>
+   <input id="nd" placeholder="Panel days (blank = lifetime)" type="number"><label>Max Devices</label><select id="nmax"></select><button onclick="createUser()">CREATE RESELLER</button>
  </div>
- <div class="card tablewrap"><table><thead><tr><th>USERNAME</th><th>ROLE</th><th>REFERRAL</th><th>ACTIVE</th><th>BALANCE</th><th>MAX DEVICES</th><th>ACTION</th></tr></thead><tbody id="usersBody"></tbody></table></div>
+  <div class="card tablewrap"><table><thead><tr><th>USERNAME</th><th>ROLE</th><th>PANEL STATUS</th><th>PANEL EXPIRY</th><th>BALANCE</th><th>MAX DEVICES</th><th>ACTIONS</th></tr></thead><tbody id="usersBody"></tbody></table></div>
 </section>
 
 <section id="pricing" class="page hidden">
  <h2>LICENSE PRICING</h2>
- <div class="card tablewrap"><table><thead><tr><th>DURATION</th><th>DEVICE LIMIT</th><th>PRICE</th><th>UPDATE</th></tr></thead><tbody id="pricingBody"></tbody></table></div>
+  <div class="card tablewrap"><table><thead><tr><th>DURATION</th><th>DEVICE LIMIT</th><th>PRICE</th><th class="admin-only">UPDATE</th></tr></thead><tbody id="pricingBody"></tbody></table></div>
 </section>
 
 <section id="referrals" class="page hidden">
  <h2>REFERRAL NETWORK</h2><div class="card"><p>Your referral code:</p><div id="myRef" class="keybox"></div><div id="refBody"></div></div>
 </section>
+
+<section id="transactions" class="page hidden">
+  <h2>TRANSACTIONS</h2>
+  <div class="card tablewrap"><table><thead><tr><th>DATE</th><th>TYPE</th><th>AMOUNT</th><th>BALANCE BEFORE</th><th>BALANCE AFTER</th><th>DESCRIPTION</th></tr></thead><tbody id="transactionsBody"></tbody></table></div>
+</section>
 </main>
 </div>
+<div id="balanceModal" class="modal hidden"><div class="modal-card"><button class="modal-close" onclick="closeModal('balanceModal')">×</button><h3>ADD BALANCE</h3><p id="balanceFor"></p><p>Current balance: <b id="balanceCurrent"></b></p><label>Amount</label><input id="balanceAmount" type="number" min="1" placeholder="₹ amount"><label>Description</label><input id="balanceDescription" value="Admin wallet credit"><button onclick="addBalance()">ADD BALANCE</button><div id="balanceMsg"></div></div></div>
+<div id="editModal" class="modal hidden"><div class="modal-card"><button class="modal-close" onclick="closeModal('editModal')">×</button><h3>EDIT RESELLER</h3><input id="editUserId" type="hidden"><label>Panel days (blank = lifetime)</label><input id="editPanelDays" type="number" min="1" placeholder="Panel days (blank = lifetime)"><label>Max Devices</label><select id="editMaxDevices"></select><button onclick="saveUserEdit()">SAVE CHANGES</button><div id="editMsg"></div></div></div>
 <script src="/app.js"></script>
 </body></html>
