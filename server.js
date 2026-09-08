@@ -61,6 +61,7 @@ function ensureColumn(table, column, definition) {
 
 ensureColumn("keys", "price_paid", "INTEGER NOT NULL DEFAULT 0");
 ensureColumn("keys", "order_id", "TEXT");
+ensureColumn("users", "max_device_limit", "INTEGER NOT NULL DEFAULT 2000");
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS pricing_plans (
@@ -71,11 +72,22 @@ CREATE TABLE IF NOT EXISTS pricing_plans (
   sort_order INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS pricing_tiers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  duration TEXT NOT NULL,
+  device_limit INTEGER NOT NULL,
+  price INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(duration, device_limit)
+);
 CREATE TABLE IF NOT EXISTS orders (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   order_id TEXT UNIQUE NOT NULL,
   reseller_id INTEGER NOT NULL,
   duration TEXT NOT NULL,
+  device_limit INTEGER NOT NULL DEFAULT 1,
   unit_price INTEGER NOT NULL,
   quantity INTEGER NOT NULL,
   total_amount INTEGER NOT NULL,
@@ -106,6 +118,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 `);
+ensureColumn("orders", "device_limit", "INTEGER NOT NULL DEFAULT 1");
 
 const defaultPlans = [
   ["5 Hours", 50, 1], ["12 Hours", 100, 2], ["1 Day", 150, 3],
@@ -114,6 +127,16 @@ const defaultPlans = [
 ];
 const insertPlan = db.prepare("INSERT OR IGNORE INTO pricing_plans(duration,price,sort_order) VALUES(?,?,?)");
 for (const plan of defaultPlans) insertPlan.run(...plan);
+const tierLimits = [1, 10, 100, 1000, 2000];
+const tierFactors = {1:1, 10:1.25, 100:2, 1000:4.1667, 2000:6.6667};
+const insertTier = db.prepare("INSERT OR IGNORE INTO pricing_tiers(duration,device_limit,price,sort_order) VALUES(?,?,?,?)");
+for (const [duration, basePrice, sortOrder] of defaultPlans) {
+  const explicit = duration === "2 Months" ? {1:1200,10:1500,100:2500,1000:5000,2000:8000} : null;
+  for (const deviceLimit of tierLimits) {
+    const price = explicit?.[deviceLimit] ?? Math.round(basePrice * tierFactors[deviceLimit]);
+    insertTier.run(duration, deviceLimit, price, sortOrder * 10 + tierLimits.indexOf(deviceLimit));
+  }
+}
 
 function ensureAdmin() {
   const admin = db.prepare("SELECT id FROM users WHERE role='admin' LIMIT 1").get();
@@ -201,7 +224,7 @@ app.post("/api/login",(req,res)=>{
     recordAudit(req, "LOGIN_FAILED", {username: username || "unknown"});
     return res.status(401).json({error:"Invalid login"});
   }
-  req.session.user={id:u.id,username:u.username,role:u.role};
+  req.session.user={id:u.id,username:u.username,role:u.role,max_device_limit:u.max_device_limit || 2000};
   recordAudit(req, "LOGIN_SUCCESS", {}, req.session.user);
   res.json({ok:true,user:req.session.user});
 });
@@ -209,7 +232,13 @@ app.post("/api/logout",(req,res)=>{
   recordAudit(req, "LOGOUT");
   req.session.destroy(()=>res.json({ok:true}));
 });
-app.get("/api/me",(req,res)=>res.json({user:req.session.user||null}));
+app.get("/api/me",(req,res)=>{
+  if (!req.session.user) return res.json({user:null});
+  const user = db.prepare("SELECT id,username,role,max_device_limit,balance FROM users WHERE id=? AND active=1").get(req.session.user.id);
+  if (!user) return req.session.destroy(() => res.json({user:null}));
+  req.session.user = {...req.session.user, max_device_limit:user.max_device_limit || 2000, balance:user.balance || 0};
+  res.json({user:req.session.user});
+});
 
 // Dashboard
 app.get("/api/dashboard",auth,(req,res)=>{
@@ -231,6 +260,18 @@ app.get("/api/dashboard",auth,(req,res)=>{
 
 app.get("/api/plans",auth,(req,res)=>{
   res.json(db.prepare("SELECT id,duration,price,active,sort_order,updated_at FROM pricing_plans ORDER BY sort_order,id").all());
+});
+app.get("/api/pricing-tiers",auth,(req,res)=>{
+  res.json(db.prepare("SELECT id,duration,device_limit,price,active,sort_order,updated_at FROM pricing_tiers ORDER BY sort_order,device_limit").all());
+});
+app.patch("/api/pricing-tiers/:id",adminOnly,(req,res)=>{
+  const price = Number(req.body.price);
+  if (!Number.isInteger(price) || price < 0 || price > 100000000) return res.status(400).json({error:"Price must be a whole number between ₹0 and ₹100,000,000"});
+  const tier = db.prepare("SELECT id,duration,device_limit FROM pricing_tiers WHERE id=?").get(req.params.id);
+  if (!tier) return res.status(404).json({error:"Pricing tier not found"});
+  db.prepare("UPDATE pricing_tiers SET price=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").run(price,tier.id);
+  recordAudit(req,"PRICING_TIER_UPDATED",{tierId:tier.id,duration:tier.duration,deviceLimit:tier.device_limit,price});
+  res.json({ok:true});
 });
 app.patch("/api/plans/:id",adminOnly,(req,res)=>{
   const price = Number(req.body.price);
@@ -267,23 +308,27 @@ app.post("/api/keys",auth,(req,res)=>{
   if (!Number.isInteger(devices) || devices < 1 || devices > 1000) return res.status(400).json({error:"Device limit must be between 1 and 1000"});
   const cleanGame = String(game || "My APK").trim().slice(0,100) || "My APK";
   const isReseller = req.session.user.role === "reseller";
-  const plan = db.prepare("SELECT * FROM pricing_plans WHERE duration=? AND active=1").get(duration);
-  if (isReseller && !plan) return res.status(400).json({error:"Choose an active pricing plan"});
-  const unitPrice = isReseller ? plan.price : 0;
+  const account = db.prepare("SELECT balance,active,max_device_limit FROM users WHERE id=?").get(owner);
+  const maxAllowed = account?.max_device_limit || 2000;
+  if (isReseller && devices > maxAllowed) return res.status(400).json({error:`This reseller is limited to ${maxAllowed} devices per key`});
+  const tier = db.prepare("SELECT * FROM pricing_tiers WHERE duration=? AND device_limit=? AND active=1").get(duration,devices);
+  if (isReseller && !tier) return res.status(400).json({error:"Choose an active duration and device limit"});
+  const unitPrice = isReseller ? tier.price : 0;
   const total = unitPrice * quantity;
   try {
     const result = db.transaction(() => {
-      const current = db.prepare("SELECT balance,active FROM users WHERE id=?").get(owner);
+      const current = db.prepare("SELECT balance,active,max_device_limit FROM users WHERE id=?").get(owner);
       if (!current || !current.active) throw new Error("Account is inactive");
+      if (isReseller && devices > (current.max_device_limit || 2000)) throw new Error(`This reseller is limited to ${current.max_device_limit || 2000} devices per key`);
       const before = current.balance || 0;
-      if (isReseller && before < total) throw new Error("Insufficient balance. Please contact admin to add balance.");
+      if (isReseller && before < total) throw new Error("Insufficient wallet balance. Please contact admin to add balance.");
       const after = before - total;
       const orderId = isReseller ? makeId("ORD") : null;
       if (isReseller) {
         const updated = db.prepare("UPDATE users SET balance=? WHERE id=? AND balance=?").run(after, owner, before);
         if (updated.changes !== 1) throw new Error("Balance changed. Please try again.");
-        db.prepare(`INSERT INTO orders(order_id,reseller_id,duration,unit_price,quantity,total_amount,balance_before,balance_after)
-          VALUES(?,?,?,?,?,?,?,?)`).run(orderId,owner,duration,unitPrice,quantity,total,before,after);
+        db.prepare(`INSERT INTO orders(order_id,reseller_id,duration,device_limit,unit_price,quantity,total_amount,balance_before,balance_after)
+          VALUES(?,?,?,?,?,?,?,?,?)`).run(orderId,owner,duration,devices,unitPrice,quantity,total,before,after);
       }
       const keys = [];
       const insert = db.prepare(`INSERT INTO keys(license_key,game,duration,expires_at,max_devices,owner_id,price_paid,order_id)
@@ -298,13 +343,13 @@ app.post("/api/keys",auth,(req,res)=>{
         db.prepare(`INSERT INTO transactions(transaction_id,user_id,type,amount,balance_before,balance_after,description,related_order_id)
           VALUES(?,?,?,?,?,?,?,?)`).run(
           makeId("TXN"), owner, "LICENSE_DEBIT", -total, before, after,
-          `${duration} license${quantity === 1 ? "" : "s"} × ${quantity}`, orderId
+          `${duration} / ${devices} device${devices === 1 ? "" : "s"} × ${quantity}`, orderId
         );
       }
       return {keys,orderId,balanceBefore:before,balanceAfter:after,unitPrice,total};
     })();
     recordAudit(req, "LICENSE_PURCHASED", {
-      orderId: result.orderId, duration, quantity, total: result.total, unitPrice: result.unitPrice
+      orderId: result.orderId, duration, deviceLimit: devices, quantity, total: result.total, unitPrice: result.unitPrice
     });
     res.json({ok:true,...result,key:result.keys[0].key,expires_at:result.keys[0].expires_at});
   } catch (e) {
@@ -368,10 +413,10 @@ app.post("/api/activate",(req,res)=>{
 
 // Admin/reseller management
 app.get("/api/users",adminOnly,(req,res)=>{
-  res.json(db.prepare(`SELECT u.id,u.username,u.role,u.referral_code,u.parent_id,u.panel_expires_at,u.balance,u.active,u.created_at,
+  res.json(db.prepare(`SELECT u.id,u.username,u.role,u.referral_code,u.parent_id,u.panel_expires_at,u.balance,u.max_device_limit,u.active,u.created_at,
     COALESCE((SELECT SUM(amount) FROM transactions WHERE user_id=u.id AND type='CREDIT'),0) total_credits,
     ABS(COALESCE((SELECT SUM(amount) FROM transactions WHERE user_id=u.id AND type='LICENSE_DEBIT'),0)) total_debits
-    FROM users u ORDER BY u.id DESC`).all());
+    FROM users u ORDER BY u.id DESC`).all().map(user => ({...user,max_device_limit:user.max_device_limit || 2000})));
 });
 app.post("/api/users",adminOnly,(req,res)=>{
   const {username,password,role="reseller",days=null,parentId=null}=req.body;
@@ -391,6 +436,12 @@ app.post("/api/users",adminOnly,(req,res)=>{
 app.patch("/api/users/:id",adminOnly,(req,res)=>{
   const active=req.body.active;
   if(active!==undefined) db.prepare("UPDATE users SET active=? WHERE id=?").run(active?1:0,req.params.id);
+  if(req.body.maxDeviceLimit!==undefined) {
+    const maxDeviceLimit = Number(req.body.maxDeviceLimit);
+    if(!Number.isInteger(maxDeviceLimit) || !tierLimits.includes(maxDeviceLimit)) return res.status(400).json({error:"Maximum device limit must be one of the configured device tiers"});
+    db.prepare("UPDATE users SET max_device_limit=? WHERE id=? AND role='reseller'").run(maxDeviceLimit,req.params.id);
+    recordAudit(req,"RESELLER_DEVICE_LIMIT_UPDATED",{userId:Number(req.params.id),maxDeviceLimit});
+  }
   if(active!==undefined) recordAudit(req, "USER_STATUS_CHANGED", {userId:Number(req.params.id),active:Boolean(active)});
   res.json({ok:true});
 });

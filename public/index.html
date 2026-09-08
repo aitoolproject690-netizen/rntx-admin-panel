@@ -21,6 +21,7 @@
  <button onclick="show('keys')">🔑 Keys Management</button>
  <button onclick="show('create')">⚙️ Create License</button>
  <button onclick="show('users')">👥 Manage Users</button>
+ <button onclick="show('pricing')">💰 Pricing</button>
  <button onclick="show('referrals')">🔗 Referral Network</button>
  <button onclick="logout()">⇥ Logout</button>
 </nav>
@@ -40,7 +41,7 @@
 <section id="create" class="page hidden">
  <div class="card formcard"><h2>CREATE LICENSE (RANDOM)</h2>
   <label>Game</label><input id="game" value="My APK">
-  <label>Max Devices</label><input id="devices" type="number" min="1" value="1">
+  <label>Max Devices</label><select id="devices"></select>
   <label>Duration</label><select id="duration"><option>5 Hours</option><option>1 Day</option><option>7 Days</option><option>30 Days</option><option>1 Year</option><option>Lifetime</option></select>
   <button onclick="createKey()">GENERATE KEY</button><div id="newKey" class="keybox hidden"></div><div id="copyMsg" class="copy-msg" aria-live="polite"></div>
  </div>
@@ -52,7 +53,12 @@
   <h3>Create Reseller</h3><input id="nu" placeholder="Username"><input id="np" placeholder="Password" type="password">
   <input id="nd" placeholder="Panel days (blank = lifetime)" type="number"><button onclick="createUser()">CREATE RESELLER</button>
  </div>
- <div class="card tablewrap"><table><thead><tr><th>USERNAME</th><th>ROLE</th><th>REFERRAL</th><th>ACTIVE</th><th>BALANCE</th><th>ACTION</th></tr></thead><tbody id="usersBody"></tbody></table></div>
+ <div class="card tablewrap"><table><thead><tr><th>USERNAME</th><th>ROLE</th><th>REFERRAL</th><th>ACTIVE</th><th>BALANCE</th><th>MAX DEVICES</th><th>ACTION</th></tr></thead><tbody id="usersBody"></tbody></table></div>
+</section>
+
+<section id="pricing" class="page hidden">
+ <h2>LICENSE PRICING</h2>
+ <div class="card tablewrap"><table><thead><tr><th>DURATION</th><th>DEVICE LIMIT</th><th>PRICE</th><th>UPDATE</th></tr></thead><tbody id="pricingBody"></tbody></table></div>
 </section>
 
 <section id="referrals" class="page hidden">
