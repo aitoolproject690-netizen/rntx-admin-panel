@@ -7,7 +7,7 @@ const path = require("path");
 
 const app = express();
 const db = new Database("rntx.db");
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 5000;
 const SESSION_SECRET = process.env.SESSION_SECRET || "CHANGE_THIS_IN_REPLIT_SECRETS";
 
 app.use(express.json());
@@ -550,4 +550,4 @@ app.get("/api/referrals",auth,(req,res)=>{
     FROM users u WHERE u.parent_id=? ORDER BY u.id DESC`).all(id));
 });
 
-app.listen(PORT,()=>console.log(`RNTX Admin Panel running on port ${PORT}`));
+app.listen(PORT,"0.0.0.0",()=>console.log(`RNTX Admin Panel running on port ${PORT}`));
