@@ -58,7 +58,13 @@
 <section id="create" class="page hidden">
  <div class="card formcard"><h2>CREATE LICENSE (RANDOM)</h2>
   <label>Game</label><input id="game" value="My APK">
-  <label>Max Devices</label><select id="devices"></select>
+  <label>Max Devices</label>
+  <select id="devices"></select>
+  <div id="customDevicesWrap" class="hidden">
+    <label>Custom Devices (1–2000)</label>
+    <input id="customDevices" type="number" min="1" max="2000" step="1" inputmode="numeric" placeholder="Example: 7, 37, 500, 2000">
+    <div id="customDevicePrice" class="copy-msg" aria-live="polite"></div>
+  </div>
   <label>Duration</label><select id="duration"><option>5 Hours</option><option>12 Hours</option><option>1 Day</option><option>7 Days</option><option>15 Days</option><option>1 Month</option><option>2 Months</option><option>Lifetime</option></select>
   <button onclick="createKey()">GENERATE KEY</button><div id="newKey" class="keybox hidden"></div><div id="copyMsg" class="copy-msg" aria-live="polite"></div>
  </div>
@@ -76,6 +82,15 @@
 <section id="pricing" class="page hidden">
  <h2>LICENSE PRICING</h2>
   <div class="card tablewrap"><table><thead><tr><th>DURATION</th><th>DEVICE LIMIT</th><th>PRICE</th><th class="admin-only">UPDATE</th></tr></thead><tbody id="pricingBody"></tbody></table></div>
+  <div class="card formcard admin-only" id="customTierCard">
+    <h3>ADD / UPDATE CUSTOM DEVICE PRICE</h3>
+    <p>Set the exact price for any custom device count. No automatic pricing formula is used.</p>
+    <label>Duration</label><select id="customTierDuration"></select>
+    <label>Custom Devices (1–2000)</label><input id="customTierDevices" type="number" min="1" max="2000" step="1" inputmode="numeric" placeholder="Example: 7, 37, 500">
+    <label>Price (₹)</label><input id="customTierPrice" type="number" min="0" max="100000000" step="1" inputmode="numeric" placeholder="Enter exact reseller price">
+    <button onclick="saveCustomTier()">SAVE CUSTOM PRICE</button>
+    <div id="customTierMsg" class="copy-msg" aria-live="polite"></div>
+  </div>
 </section>
 
 <section id="audit" class="page hidden admin-only">
@@ -106,4 +121,5 @@
 <div id="balanceModal" class="modal hidden"><div class="modal-card"><button class="modal-close" onclick="closeModal('balanceModal')">×</button><h3>MANAGE BALANCE</h3><p id="balanceFor"></p><p>Current balance: <b id="balanceCurrent"></b></p><label>Add amount</label><input id="balanceAmount" type="number" min="1" placeholder="₹ amount"><label>Description</label><input id="balanceDescription" value="Admin wallet credit"><button onclick="addBalance()">ADD BALANCE</button><label>Set exact balance</label><input id="balanceExact" type="number" min="0" placeholder="₹ exact balance"><button onclick="setBalance()">SAVE BALANCE</button><div id="balanceMsg"></div></div></div>
  <div id="editModal" class="modal hidden"><div class="modal-card"><button class="modal-close" onclick="closeModal('editModal')">×</button><h3>EDIT RESELLER</h3><input id="editUserId" type="hidden"><label>Username</label><input id="editUsername" autocomplete="off"><label>New password (blank = unchanged)</label><input id="editPassword" type="password" autocomplete="new-password"><label>Panel days (blank = lifetime)</label><input id="editPanelDays" type="number" min="1" placeholder="Panel days (blank = lifetime)"><label>Max Devices</label><select id="editMaxDevices"></select><button onclick="saveUserEdit()">SAVE CHANGES</button><button class="danger" onclick="deleteReseller()">DELETE RESELLER</button><div id="editMsg"></div></div></div>
 <script src="/app.js"></script>
+<script src="/custom-devices.js"></script>
 </body></html>
