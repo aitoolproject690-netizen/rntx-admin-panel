@@ -42,3 +42,13 @@ A successful response contains `valid: true` and the license information.
 - Do not hard-code admin credentials.
 - Add rate limiting and audit logs before public launch.
 - For real panel sales, connect a payment provider and verify webhooks server-side.
+
+## Local preparation update (September 2026)
+- Added a premium mobile-friendly login screen using the supplied comic artwork as the login background.
+- Added glass-style login card, password visibility toggle, focus states, and accessible login feedback.
+- Fixed the frontend so a missing optional brand-role element cannot crash the dashboard.
+- Added an Admin-only Audit Logs screen backed by the existing audit-log API.
+- Enforced Admin-only license block/unblock/delete operations on the server and reflected that restriction in the reseller UI.
+- The supplied login artwork is stored as `public/login-background.jpg`.
+
+The deployable archive intentionally excludes the local SQLite database and transient/editor metadata. Configure production secrets before deployment.

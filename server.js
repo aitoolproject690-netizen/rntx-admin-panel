@@ -8,15 +8,39 @@ const path = require("path");
 const app = express();
 const db = new Database("rntx.db");
 const PORT = Number(process.env.PORT) || 5000;
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const SESSION_SECRET = process.env.SESSION_SECRET || "CHANGE_THIS_IN_REPLIT_SECRETS";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "ChangeMe123!";
+if (IS_PRODUCTION && (SESSION_SECRET.length < 32 || !process.env.SESSION_SECRET)) {
+  throw new Error("SESSION_SECRET must be set to a strong value (32+ characters) in production.");
+}
+if (IS_PRODUCTION && (!process.env.ADMIN_PASSWORD || process.env.ADMIN_PASSWORD.length < 8)) {
+  throw new Error("ADMIN_PASSWORD must be set to a strong value (8+ characters) in production.");
+}
 
-app.use(express.json());
-app.use(express.urlencoded({extended:true}));
+app.disable("x-powered-by");
+if (IS_PRODUCTION) app.set("trust proxy", 1);
+app.use((req,res,next)=>{
+  res.set({
+    "X-Content-Type-Options":"nosniff",
+    "X-Frame-Options":"SAMEORIGIN",
+    "Referrer-Policy":"strict-origin-when-cross-origin",
+    "Permissions-Policy":"camera=(), microphone=(), geolocation=()"
+  });
+  next();
+});
+app.use(express.json({limit:"100kb"}));
+app.use(express.urlencoded({extended:true, limit:"100kb"}));
 app.use(session({
   secret: SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
-  cookie: { httpOnly: true, sameSite: "lax", secure: false, maxAge: 7*24*60*60*1000 }
+  cookie: {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: IS_PRODUCTION,
+    maxAge: 7*24*60*60*1000
+  }
 }));
 
 db.exec(`
@@ -116,10 +140,23 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   metadata TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 `);
 ensureColumn("orders", "device_limit", "INTEGER NOT NULL DEFAULT 1");
 ensureColumn("transactions", "performed_by", "INTEGER");
 ensureColumn("transactions", "performed_by_username", "TEXT");
+const defaultSettings = {
+  panel_name: "RNTX ADMIN PANEL",
+  default_game: "My APK",
+  maintenance_mode: "0"
+};
+const upsertSetting = db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)");
+for (const [key, value] of Object.entries(defaultSettings)) upsertSetting.run(key, value);
+
 
 const defaultPlans = [
   ["5 Hours", 50, 1], ["12 Hours", 100, 2], ["1 Day", 150, 3],
@@ -142,7 +179,7 @@ for (const [duration, basePrice, sortOrder] of defaultPlans) {
 function ensureAdmin() {
   const admin = db.prepare("SELECT id FROM users WHERE role='admin' LIMIT 1").get();
   if (!admin) {
-    const hash = bcrypt.hashSync(process.env.ADMIN_PASSWORD || "ChangeMe123!", 12);
+    const hash = bcrypt.hashSync(ADMIN_PASSWORD, 12);
     db.prepare("INSERT INTO users(username,password_hash,role,referral_code,panel_expires_at) VALUES(?,?,?,?,NULL)")
       .run(process.env.ADMIN_USERNAME || "admin", hash, "admin", "RNTXADMIN");
     console.log("Default admin created. Set ADMIN_USERNAME, ADMIN_PASSWORD and SESSION_SECRET in Replit Secrets.");
@@ -154,6 +191,9 @@ function auth(req,res,next) {
   if (!req.session.user) return res.status(401).json({error:"Login required"});
   const user = db.prepare("SELECT id,username,role,active,panel_expires_at,balance,max_device_limit FROM users WHERE id=?").get(req.session.user.id);
   if (!user || !user.active) return res.status(403).json({error:"Panel blocked",code:"PANEL_BLOCKED"});
+  if (user.role === "reseller" && db.prepare("SELECT value FROM settings WHERE key='maintenance_mode'").get()?.value === "1") {
+    return res.status(503).json({error:"Reseller panel is under maintenance",code:"MAINTENANCE"});
+  }
   if (user.role === "reseller" && user.panel_expires_at && new Date(user.panel_expires_at) <= new Date()) {
     return res.status(403).json({error:"Reseller panel access has expired",code:"PANEL_EXPIRED"});
   }
@@ -245,9 +285,13 @@ app.post("/api/login",(req,res)=>{
   if (panel === "admin" && u.role !== "admin") return res.status(403).json({error:"Admin panel access required"});
   if (panel === "reseller" && u.role !== "reseller") return res.status(403).json({error:"Reseller panel access required"});
   if (panel === "reseller" && panelExpired(u)) return res.status(403).json({error:"Reseller panel access has expired",code:"PANEL_EXPIRED"});
-  req.session.user={id:u.id,username:u.username,role:u.role,panel_expires_at:u.panel_expires_at,balance:u.balance || 0,max_device_limit:u.max_device_limit || 2000};
-  recordAudit(req, "LOGIN_SUCCESS", {}, req.session.user);
-  res.json({ok:true,user:req.session.user});
+  const sessionUser={id:u.id,username:u.username,role:u.role,panel_expires_at:u.panel_expires_at,balance:u.balance || 0,max_device_limit:u.max_device_limit || 2000};
+  req.session.regenerate(err=>{
+    if(err) return res.status(500).json({error:"Could not start session"});
+    req.session.user=sessionUser;
+    recordAudit(req, "LOGIN_SUCCESS", {}, req.session.user);
+    res.json({ok:true,user:req.session.user});
+  });
 });
 app.post("/api/logout",(req,res)=>{
   recordAudit(req, "LOGOUT");
@@ -259,8 +303,12 @@ app.get("/api/me",(req,res)=>{
   if (!user) return req.session.destroy(() => res.json({user:null}));
   if (!user.active) return res.status(403).json({user:null,error:"Panel blocked",code:"PANEL_BLOCKED"});
   if (panelExpired(user)) return res.status(403).json({user:null,error:"Reseller panel access has expired",code:"PANEL_EXPIRED"});
+  if (user.role === "reseller" && db.prepare("SELECT value FROM settings WHERE key='maintenance_mode'").get()?.value === "1") {
+    return res.status(503).json({user:null,error:"Reseller panel is under maintenance",code:"MAINTENANCE"});
+  }
   req.session.user = {...req.session.user, ...user, max_device_limit:user.max_device_limit || 2000, balance:user.balance || 0};
-  res.json({user:req.session.user});
+  const settings=Object.fromEntries(db.prepare("SELECT key,value FROM settings WHERE key IN ('panel_name','default_game','maintenance_mode')").all().map(x=>[x.key,x.value]));
+  res.json({user:req.session.user,settings});
 });
 
 function sendPanelPage(panel) {
@@ -270,6 +318,7 @@ function sendPanelPage(panel) {
     if (user && !user.active) return res.status(403).send("Panel blocked");
     if (user && panel === "admin" && (user.role !== "admin" || !mainAdmin || user.id !== mainAdmin.id)) return res.status(403).send("Admin panel access required");
     if (user && panel === "reseller" && user.role !== "reseller") return res.status(403).send("Reseller panel access required");
+    if (user && panel === "reseller" && db.prepare("SELECT value FROM settings WHERE key='maintenance_mode'").get()?.value === "1") return res.status(503).send("Reseller panel is under maintenance");
     if (user && panel === "reseller" && panelExpired(user)) return res.status(403).send("Reseller panel access has expired");
     res.sendFile(path.join(__dirname, "public", "index.html"));
   };
@@ -346,13 +395,17 @@ app.get("/api/keys",auth,(req,res)=>{
 });
 
 app.post("/api/keys",auth,(req,res)=>{
-  const {game="My APK",duration="Lifetime",maxDevices=1}=req.body;
+  const requestedGame = req.body?.game;
+  const configuredGame = db.prepare("SELECT value FROM settings WHERE key='default_game'").get()?.value || "My APK";
+  const game = String(requestedGame ?? configuredGame).trim().slice(0,100) || configuredGame;
+  const duration = String(req.body?.duration ?? "Lifetime").trim();
+  const maxDevices = req.body?.maxDevices ?? 1;
   const owner=req.session.user.id;
   const quantity = Number(req.body.quantity ?? 1);
   const devices = Number(maxDevices);
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > 100) return res.status(400).json({error:"Quantity must be between 1 and 100"});
   if (!Number.isInteger(devices) || devices < 1 || devices > 2000) return res.status(400).json({error:"Device limit must be between 1 and 2000"});
-  const cleanGame = String(game || "My APK").trim().slice(0,100) || "My APK";
+  const cleanGame = game;
   const isReseller = req.session.user.role === "reseller";
   const account = db.prepare("SELECT balance,active,max_device_limit FROM users WHERE id=?").get(owner);
   const maxAllowed = account?.max_device_limit || 2000;
@@ -404,20 +457,18 @@ app.post("/api/keys",auth,(req,res)=>{
     res.status(message.startsWith("Insufficient") || message === "Account is inactive" ? 400 : 500).json({error:message});
   }
 });
-app.patch("/api/keys/:id",auth,(req,res)=>{
+app.patch("/api/keys/:id",adminOnly,(req,res)=>{
   const row=db.prepare("SELECT * FROM keys WHERE id=?").get(req.params.id);
   if(!row) return res.status(404).json({error:"Key not found"});
-  if(req.session.user.role!=="admin" && row.owner_id!==req.session.user.id) return res.status(403).json({error:"Not allowed"});
   const status=req.body.status;
   if(["UNUSED","ACTIVE","BLOCKED"].includes(status))
     db.prepare("UPDATE keys SET status=? WHERE id=?").run(status,row.id);
   recordAudit(req, "LICENSE_STATUS_CHANGED", {keyId:row.id, status});
   res.json({ok:true});
 });
-app.delete("/api/keys/:id",auth,(req,res)=>{
+app.delete("/api/keys/:id",adminOnly,(req,res)=>{
   const row=db.prepare("SELECT * FROM keys WHERE id=?").get(req.params.id);
   if(!row) return res.status(404).json({error:"Key not found"});
-  if(req.session.user.role!=="admin" && row.owner_id!==req.session.user.id) return res.status(403).json({error:"Not allowed"});
   db.prepare("DELETE FROM keys WHERE id=?").run(row.id);
   recordAudit(req, "LICENSE_DELETED", {keyId:row.id});
   res.json({ok:true});
@@ -426,12 +477,14 @@ app.delete("/api/keys/:id",auth,(req,res)=>{
 // APK verification endpoint
 app.post("/api/activate",(req,res)=>{
   if (rejectRateLimit(req,res,"activation-ip",60*1000,60,req.ip || "unknown")) return;
-  const {licenseKey,deviceId}=req.body;
-  if(!licenseKey || !deviceId) {
+  const {licenseKey,deviceId}=req.body || {};
+  const cleanLicenseKey=String(licenseKey).trim().slice(0,200);
+  const cleanDeviceId=String(deviceId).trim().slice(0,200);
+  if(!cleanLicenseKey || !cleanDeviceId) {
     recordAudit(req, "ACTIVATION_FAILED", {reason:"missing_fields"});
     return res.status(400).json({valid:false,error:"licenseKey and deviceId required"});
   }
-  const k=db.prepare("SELECT * FROM keys WHERE license_key=?").get(licenseKey);
+  const k=db.prepare("SELECT * FROM keys WHERE license_key=?").get(cleanLicenseKey);
   if(!k) {
     recordAudit(req, "ACTIVATION_FAILED", {reason:"invalid_key"});
     return res.status(404).json({valid:false,error:"Invalid key"});
@@ -445,16 +498,25 @@ app.post("/api/activate",(req,res)=>{
     recordAudit(req, "ACTIVATION_FAILED", {keyId:k.id,reason:"expired_key"});
     return res.status(403).json({valid:false,error:"Key expired"});
   }
-  const existing=db.prepare("SELECT id FROM devices WHERE key_id=? AND device_id=?").get(k.id,deviceId);
-  if(!existing) {
-    if(k.devices_used >= k.max_devices) {
-      recordAudit(req, "ACTIVATION_FAILED", {keyId:k.id,reason:"device_limit"});
-      return res.status(403).json({valid:false,error:"Device limit reached"});
-    }
-    db.prepare("INSERT INTO devices(key_id,device_id) VALUES(?,?)").run(k.id,deviceId);
-    db.prepare("UPDATE keys SET devices_used=devices_used+1,status='ACTIVE' WHERE id=?").run(k.id);
+  try {
+    const activated=db.transaction(()=>{
+      const existing=db.prepare("SELECT id FROM devices WHERE key_id=? AND device_id=?").get(k.id,cleanDeviceId);
+      if(existing) return false;
+      const current=db.prepare("SELECT devices_used,max_devices,status,expires_at FROM keys WHERE id=?").get(k.id);
+      if(!current || current.status==="BLOCKED") throw new Error("Key blocked");
+      if(current.expires_at && new Date(current.expires_at) <= new Date()) throw new Error("Key expired");
+      if(current.devices_used >= current.max_devices) throw new Error("Device limit reached");
+      db.prepare("INSERT INTO devices(key_id,device_id) VALUES(?,?)").run(k.id,cleanDeviceId);
+      const updated=db.prepare("UPDATE keys SET devices_used=devices_used+1,status='ACTIVE' WHERE id=? AND devices_used=?").run(k.id,current.devices_used);
+      if(updated.changes!==1) throw new Error("Activation conflict. Please try again.");
+      return true;
+    })();
+    res.json({valid:true,game:k.game,duration:k.duration,expires_at:k.expires_at,max_devices:k.max_devices,alreadyActivated:!activated});
+  } catch(e) {
+    const reason=e.message==="Device limit reached"?"device_limit":e.message==="Key expired"?"expired_key":e.message==="Key blocked"?"blocked_key":"activation_conflict";
+    recordAudit(req,"ACTIVATION_FAILED",{keyId:k.id,reason});
+    return res.status(e.message==="Activation conflict. Please try again."?409:403).json({valid:false,error:e.message});
   }
-  res.json({valid:true,game:k.game,duration:k.duration,expires_at:k.expires_at,max_devices:k.max_devices});
 });
 
 // Admin/reseller management
@@ -466,20 +528,30 @@ app.get("/api/users",adminOnly,(req,res)=>{
 });
 app.post("/api/users",adminOnly,(req,res)=>{
   const {username,password,role="reseller",days=null,parentId=null,maxDeviceLimit=2000}=req.body;
-  if(!username || !password) return res.status(400).json({error:"Username/password required"});
+  const cleanUsername=String(username||"").trim().slice(0,100);
+  const cleanPassword=String(password||"");
+  if(cleanUsername.length<3 || cleanPassword.length<8) return res.status(400).json({error:"Username must be at least 3 characters and password at least 8 characters"});
   if(!["reseller","admin"].includes(role)) return res.status(400).json({error:"Invalid role"});
   if (role !== "reseller") return res.status(400).json({error:"Only reseller accounts can be created here"});
   const parsedLimit = Number(maxDeviceLimit);
   if (!Number.isInteger(parsedLimit) || !tierLimits.includes(parsedLimit)) return res.status(400).json({error:"Maximum device limit must be one of the configured device tiers"});
-  const hash=bcrypt.hashSync(password,12);
+  const hash=bcrypt.hashSync(cleanPassword,12);
   const code="RNTX-"+crypto.randomBytes(4).toString("hex").toUpperCase();
   let exp=null;
   if(days !== null && days !== "" && (!Number.isInteger(Number(days)) || Number(days) <= 0)) return res.status(400).json({error:"Panel days must be a positive whole number or blank for lifetime"});
   if(days !== null && days !== ""){const d=new Date();d.setDate(d.getDate()+Number(days));exp=d.toISOString();}
+  let cleanParentId=null;
+  if(parentId!==null && parentId!==""){
+    const parsedParentId=Number(parentId);
+    if(!Number.isInteger(parsedParentId) || parsedParentId<1) return res.status(400).json({error:"Invalid referral parent"});
+    const parent=db.prepare("SELECT id,role FROM users WHERE id=?").get(parsedParentId);
+    if(!parent || parent.role!=="reseller") return res.status(400).json({error:"Referral parent must be an existing reseller"});
+    cleanParentId=parent.id;
+  }
   try {
     const info=db.prepare(`INSERT INTO users(username,password_hash,role,referral_code,parent_id,panel_expires_at,max_device_limit)
-      VALUES(?,?,?,?,?,?,?)`).run(username,hash,role,code,parentId||null,exp,parsedLimit);
-    recordAudit(req, "USER_CREATED", {userId:info.lastInsertRowid, username, role});
+      VALUES(?,?,?,?,?,?,?)`).run(cleanUsername,hash,role,code,cleanParentId,exp,parsedLimit);
+    recordAudit(req, "USER_CREATED", {userId:info.lastInsertRowid, username:cleanUsername, role});
     res.json({ok:true,id:info.lastInsertRowid,referral_code:code});
   } catch(e){res.status(400).json({error:"Username already exists"});}
 });
@@ -561,7 +633,8 @@ app.post("/api/users/:id/balance",adminOnly,(req,res)=>{
       const user = db.prepare("SELECT id,username,balance,role,active FROM users WHERE id=?").get(req.params.id);
       if (!user || user.role !== "reseller") throw new Error("Reseller not found");
       const before = user.balance || 0, after = before + amount;
-      db.prepare("UPDATE users SET balance=? WHERE id=? AND balance=?").run(after,user.id,before);
+      const updated=db.prepare("UPDATE users SET balance=? WHERE id=? AND balance=?").run(after,user.id,before);
+      if(updated.changes!==1) throw new Error("Balance changed. Please try again.");
       db.prepare(`INSERT INTO transactions(transaction_id,user_id,type,amount,balance_before,balance_after,description,performed_by,performed_by_username)
         VALUES(?,?,?,?,?,?,?,?,?)`).run(makeId("TXN"),user.id,"CREDIT",amount,before,after,description,req.currentUser.id,req.currentUser.username);
       return {username:user.username,balanceBefore:before,balanceAfter:after};
@@ -580,7 +653,8 @@ app.patch("/api/users/:id/balance",adminOnly,(req,res)=>{
       const user=db.prepare("SELECT id,username,balance,role FROM users WHERE id=?").get(req.params.id);
       if(!user || user.role!=="reseller") throw new Error("Reseller not found");
       const before=user.balance||0, delta=balance-before;
-      db.prepare("UPDATE users SET balance=? WHERE id=? AND balance=?").run(balance,user.id,before);
+      const updated=db.prepare("UPDATE users SET balance=? WHERE id=? AND balance=?").run(balance,user.id,before);
+      if(updated.changes!==1) throw new Error("Balance changed. Please try again.");
       db.prepare(`INSERT INTO transactions(transaction_id,user_id,type,amount,balance_before,balance_after,description,performed_by,performed_by_username)
         VALUES(?,?,?,?,?,?,?,?,?)`).run(makeId("TXN"),user.id,"BALANCE_ADJUSTMENT",delta,before,balance,description,req.currentUser.id,req.currentUser.username);
       return {username:user.username,balanceBefore:before,balanceAfter:balance};
@@ -591,12 +665,40 @@ app.patch("/api/users/:id/balance",adminOnly,(req,res)=>{
 });
 
 app.get("/api/transactions",auth,(req,res)=>{
-  const requested = req.session.user.role === "admin" && req.query.userId ? Number(req.query.userId) : req.session.user.id;
   const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
-  const rows = db.prepare(`SELECT t.*,u.username FROM transactions t
-    LEFT JOIN users u ON u.id=t.user_id
-    WHERE t.user_id=? ORDER BY t.id DESC LIMIT ?`).all(requested,limit);
+  let rows;
+  if (req.currentUser.role === "admin") {
+    const requested = req.query.userId ? Number(req.query.userId) : null;
+    if (requested !== null && (!Number.isInteger(requested) || requested < 1)) return res.status(400).json({error:"Invalid userId"});
+    rows = requested
+      ? db.prepare(`SELECT t.*,u.username FROM transactions t LEFT JOIN users u ON u.id=t.user_id WHERE t.user_id=? ORDER BY t.id DESC LIMIT ?`).all(requested,limit)
+      : db.prepare(`SELECT t.*,u.username FROM transactions t LEFT JOIN users u ON u.id=t.user_id ORDER BY t.id DESC LIMIT ?`).all(limit);
+  } else {
+    rows = db.prepare(`SELECT t.*,u.username FROM transactions t LEFT JOIN users u ON u.id=t.user_id WHERE t.user_id=? ORDER BY t.id DESC LIMIT ?`).all(req.currentUser.id,limit);
+  }
   res.json(rows);
+});
+
+app.get("/api/settings",adminOnly,(req,res)=>{
+  const rows=db.prepare("SELECT key,value FROM settings ORDER BY key").all();
+  res.json(Object.fromEntries(rows.map(x=>[x.key,x.value])));
+});
+app.patch("/api/settings",adminOnly,(req,res)=>{
+  const allowed={panel_name:120,default_game:100,maintenance_mode:1};
+  const changes={};
+  for(const key of Object.keys(allowed)){
+    if(Object.prototype.hasOwnProperty.call(req.body,key)){
+      let value=String(req.body[key] ?? "").trim();
+      if(key === "maintenance_mode" && !["0","1","true","false"].includes(value.toLowerCase())) return res.status(400).json({error:"Invalid maintenance mode value"});
+      if(key === "maintenance_mode") value=["1","true"].includes(value.toLowerCase())?"1":"0";
+      if(value.length>allowed[key]) return res.status(400).json({error:`${key} is too long`});
+      if(!value && key !== "maintenance_mode") return res.status(400).json({error:`${key} cannot be empty`});
+      db.prepare("INSERT INTO settings(key,value,updated_at) VALUES(?,?,CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=CURRENT_TIMESTAMP").run(key,value);
+      changes[key]=value;
+    }
+  }
+  recordAudit(req,"SETTINGS_UPDATED",changes);
+  res.json({ok:true,settings:Object.fromEntries(db.prepare("SELECT key,value FROM settings").all().map(x=>[x.key,x.value]))});
 });
 
 app.get("/api/audit-logs",adminOnly,(req,res)=>{
