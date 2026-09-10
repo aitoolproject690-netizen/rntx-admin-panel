@@ -5,12 +5,24 @@
 <title>RNTX ADMIN PANEL</title><link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<div id="login" class="screen">
+<div id="login" class="screen login-screen">
+  <div class="login-backdrop" aria-hidden="true"></div>
   <div class="login-card">
-    <div class="logo">🛡️</div><h1>RNTX ADMIN PANEL</h1><p>Secure License Management</p>
-    <input id="user" placeholder="Username" autocomplete="username">
-    <input id="pass" placeholder="Password" type="password" autocomplete="current-password">
-    <button onclick="login()">LOGIN</button><div id="loginMsg"></div>
+    <div class="login-brand">
+      <div class="logo">🛡️</div>
+      <div class="eyebrow">RNTX SECURE ACCESS</div>
+      <h1>RNTX ADMIN PANEL</h1>
+      <p>Secure License Management</p>
+    </div>
+    <form class="login-form" onsubmit="event.preventDefault();login()">
+      <label for="user">Username</label>
+      <div class="input-wrap"><span>👤</span><input id="user" placeholder="Enter username" autocomplete="username" required></div>
+      <label for="pass">Password</label>
+      <div class="input-wrap"><span>🔒</span><input id="pass" placeholder="Enter password" type="password" autocomplete="current-password" required><button type="button" class="password-toggle" onclick="togglePassword()" aria-label="Show password">◉</button></div>
+      <button class="login-button" type="submit"><span>LOGIN</span><span class="login-arrow">→</span></button>
+      <div id="loginMsg" role="alert" aria-live="polite"></div>
+    </form>
+    <div class="login-footer"><span class="status-dot"></span> Protected access · RNTX</div>
   </div>
 </div>
 
@@ -22,6 +34,8 @@
  <button onclick="show('create')">⚙️ Generate License</button>
  <button id="usersNav" class="admin-only" onclick="show('users')">👥 Manage Users</button>
  <button onclick="show('pricing')">💰 Pricing</button>
+ <button class="admin-only" onclick="show('audit')">🛡️ Audit Logs</button>
+ <button class="admin-only" onclick="show('settings')">⚙️ Admin Settings</button>
  <button onclick="show('referrals')">🔗 Referral Network</button>
  <button onclick="show('transactions')">💳 Transactions</button>
  <button onclick="logout()">⇥ Logout</button>
@@ -45,7 +59,7 @@
  <div class="card formcard"><h2>CREATE LICENSE (RANDOM)</h2>
   <label>Game</label><input id="game" value="My APK">
   <label>Max Devices</label><select id="devices"></select>
-  <label>Duration</label><select id="duration"><option>5 Hours</option><option>1 Day</option><option>7 Days</option><option>30 Days</option><option>1 Year</option><option>Lifetime</option></select>
+  <label>Duration</label><select id="duration"><option>5 Hours</option><option>12 Hours</option><option>1 Day</option><option>7 Days</option><option>15 Days</option><option>1 Month</option><option>2 Months</option><option>Lifetime</option></select>
   <button onclick="createKey()">GENERATE KEY</button><div id="newKey" class="keybox hidden"></div><div id="copyMsg" class="copy-msg" aria-live="polite"></div>
  </div>
 </section>
@@ -64,13 +78,28 @@
   <div class="card tablewrap"><table><thead><tr><th>DURATION</th><th>DEVICE LIMIT</th><th>PRICE</th><th class="admin-only">UPDATE</th></tr></thead><tbody id="pricingBody"></tbody></table></div>
 </section>
 
+<section id="audit" class="page hidden admin-only">
+ <div class="row"><h2>AUDIT LOGS</h2><button onclick="loadAudit()">↻ REFRESH</button></div>
+ <div class="card tablewrap"><table><thead><tr><th>DATE</th><th>EVENT</th><th>USER</th><th>IP</th><th>DETAILS</th></tr></thead><tbody id="auditBody"></tbody></table></div>
+</section>
+
 <section id="referrals" class="page hidden">
  <h2>REFERRAL NETWORK</h2><div class="card"><p>Your referral code:</p><div id="myRef" class="keybox"></div><div id="refBody"></div></div>
 </section>
 
 <section id="transactions" class="page hidden">
   <h2>TRANSACTIONS</h2>
-  <div class="card tablewrap"><table><thead><tr><th>DATE</th><th>TYPE</th><th>AMOUNT</th><th>BALANCE BEFORE</th><th>BALANCE AFTER</th><th>DESCRIPTION</th></tr></thead><tbody id="transactionsBody"></tbody></table></div>
+  <div class="card tablewrap"><table><thead><tr><th>DATE</th><th>USER</th><th>TYPE</th><th>AMOUNT</th><th>BALANCE BEFORE</th><th>BALANCE AFTER</th><th>DESCRIPTION</th></tr></thead><tbody id="transactionsBody"></tbody></table></div>
+</section>
+
+<section id="settings" class="page hidden admin-only">
+ <h2>ADMIN SETTINGS</h2>
+ <div class="card formcard">
+  <label>Panel Name</label><input id="settingPanelName" maxlength="120">
+  <label>Default Game</label><input id="settingDefaultGame" maxlength="100">
+  <label>Maintenance Mode</label><select id="settingMaintenance"><option value="0">OFF</option><option value="1">ON</option></select>
+  <button onclick="saveSettings()">SAVE SETTINGS</button><div id="settingsMsg" class="copy-msg" aria-live="polite"></div>
+ </div>
 </section>
 </main>
 </div>

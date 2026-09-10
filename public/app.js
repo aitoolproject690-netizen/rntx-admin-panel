@@ -23,14 +23,18 @@ function panelStatus(user){
 function applyRoleUI(){
   document.querySelectorAll(".admin-only").forEach(el=>el.classList.toggle("hidden",me?.role!=="admin"));
   document.querySelectorAll(".reseller-only").forEach(el=>el.classList.toggle("hidden",me?.role!=="reseller"));
-  $("brandRole").textContent=me?.role==="reseller"?"RESELLER PANEL":"ADMIN PANEL";
+  const brandRole=$("brandRole");
+  if(brandRole) brandRole.textContent=me?.role==="reseller"?"RESELLER PANEL":"ADMIN PANEL";
 }
 async function boot(){
   try{
     const d=await api("/api/me");
     if(d.user){
       me=d.user;
+      window.rntxSettings=d.settings||{};
       if(me.role!=="admin"&&PANEL!=="reseller"||me.role==="admin"&&PANEL!=="admin"){location.href=routeForRole(me.role);return}
+      const brand=document.querySelector(".brand b"); if(brand&&window.rntxSettings.panel_name) brand.textContent=window.rntxSettings.panel_name;
+      const game=$("game"); if(game&&window.rntxSettings.default_game) game.value=window.rntxSettings.default_game;
       $("login").classList.add("hidden");$("app").classList.remove("hidden");applyRoleUI();show("dashboard");
     }
   }catch(e){if(e.code)$("loginMsg").textContent=e.message}
@@ -42,6 +46,7 @@ async function login(){
   }catch(e){$("loginMsg").textContent=e.message}
 }
 async function logout(){await api("/api/logout",{method:"POST"});location.href=routeForRole(PANEL==="reseller"?"reseller":"admin")}
+function togglePassword(){const input=$("pass"),button=document.querySelector(".password-toggle");if(!input)return;const visible=input.type==="text";input.type=visible?"password":"text";if(button)button.textContent=visible?"◉":"◌";if(button)button.setAttribute("aria-label",visible?"Show password":"Hide password")}
 function toggleNav(){$("nav").classList.toggle("navopen")}
 function show(id){
   if(id==="users"&&me?.role!=="admin")return;
@@ -54,6 +59,8 @@ function show(id){
   if(id==="pricing")loadPricing();
   if(id==="transactions")loadTransactions();
   if(id==="referrals")loadRefs();
+  if(id==="audit"&&me?.role==="admin")loadAudit();
+  if(id==="settings"&&me?.role==="admin")loadSettings();
 }
 async function loadDash(){
   const d=await api("/api/dashboard");
@@ -64,7 +71,7 @@ async function loadDash(){
 }
 async function loadKeys(){
   const rows=await api("/api/keys?q="+encodeURIComponent($("search")?.value||""));
-  $("keysBody").innerHTML=rows.map(k=>`<tr><td>${esc(k.license_key)}</td><td>${esc(k.game)}</td><td>${formatDate(k.expires_at)}</td><td><span class="pill">${esc(k.status)}</span></td><td>${k.devices_used}/${k.max_devices}</td><td><button class="small" onclick="toggleKey(${k.id},'${k.status==="BLOCKED"?"UNUSED":"BLOCKED"}')">${k.status==="BLOCKED"?"UNBLOCK":"BLOCK"}</button>${me.role==="admin"?`<button class="small danger" onclick="delKey(${k.id})">DELETE</button>`:""}</td></tr>`).join("")||"<tr><td colspan=6>No generated keys yet.</td></tr>";
+  $("keysBody").innerHTML=rows.map(k=>`<tr><td>${esc(k.license_key)}</td><td>${esc(k.game)}</td><td>${formatDate(k.expires_at)}</td><td><span class="pill">${esc(k.status)}</span></td><td>${k.devices_used}/${k.max_devices}</td><td>${me.role==="admin"?`<button class="small" onclick="toggleKey(${k.id},'${k.status==="BLOCKED"?"UNUSED":"BLOCKED"}')">${k.status==="BLOCKED"?"UNBLOCK":"BLOCK"}</button><button class="small danger" onclick="delKey(${k.id})">DELETE</button>`:`<span class="muted-action">VIEW ONLY</span>`}</td></tr>`).join("")||"<tr><td colspan=6>No generated keys yet.</td></tr>";
 }
 async function loadCreate(){
   try{pricingTiers=await api("/api/pricing-tiers");renderCreateOptions()}catch(e){$("copyMsg").textContent=e.message}
@@ -105,8 +112,11 @@ async function copyKey(key,button){
   }catch(e){$("copyMsg").textContent="Unable to copy key. Please copy it manually."}
 }
 function toastCopyMessage(message){$("copyMsg").textContent=message;setTimeout(()=>{if($("copyMsg"))$("copyMsg").textContent=""},2200)}
-async function toggleKey(id,status){try{await api("/api/keys/"+id,{method:"PATCH",body:JSON.stringify({status})});loadKeys()}catch(e){alert(e.message)}}
-async function delKey(id){if(confirm("Delete this key?")){await api("/api/keys/"+id,{method:"DELETE"});loadKeys()}}
+async function toggleKey(id,status){
+  if(me?.role!=="admin"){alert("Only admin can block or unblock license keys.");return}
+  try{await api("/api/keys/"+id,{method:"PATCH",body:JSON.stringify({status})});loadKeys()}catch(e){alert(e.message)}
+}
+async function delKey(id){if(me?.role!=="admin"){alert("Only admin can delete license keys.");return}if(confirm("Delete this key?")){await api("/api/keys/"+id,{method:"DELETE"});loadKeys()}}
 async function loadUsers(){
   if(me.role!=="admin")return;
   fillLimitSelect("nmax",2000);
@@ -164,11 +174,35 @@ async function loadPricing(){
   }catch(e){alert(e.message)}
 }
 async function saveTier(id){try{await api("/api/pricing-tiers/"+id,{method:"PATCH",body:JSON.stringify({price:Number($("tier-"+id).value)})});alert("Pricing updated.");loadPricing();if(!$("create").classList.contains("hidden"))loadCreate()}catch(e){alert(e.message)}}
+async function loadAudit(){
+  if(me?.role!=="admin")return;
+  try{
+    const rows=await api("/api/audit-logs?limit=200");
+    $("auditBody").innerHTML=rows.map(x=>`<tr><td>${formatDate(x.created_at)}</td><td><span class="pill">${esc(x.event_type)}</span></td><td>${esc(x.username||"SYSTEM")}</td><td>${esc(x.ip_address||"—")}</td><td class="audit-meta">${esc(x.metadata||"{}")}</td></tr>`).join("")||"<tr><td colspan=5>No audit events yet.</td></tr>";
+  }catch(e){alert(e.message)}
+}
 function transactionLine(t){return `<div class="transaction-line"><span>${formatDate(t.created_at)}</span><b class="${t.amount<0?"debit":"credit"}">${t.amount<0?"":"+"}₹${Math.abs(Number(t.amount)).toLocaleString("en-IN")}</b><span>${esc(t.type)} — ${esc(t.description)}</span></div>`}
 async function loadTransactions(){
   const rows=await api("/api/transactions");
-  $("transactionsBody").innerHTML=rows.map(t=>`<tr><td>${formatDate(t.created_at)}</td><td>${esc(t.type)}</td><td class="${t.amount<0?"debit":"credit"}">${t.amount<0?"":"+"}₹${Math.abs(Number(t.amount)).toLocaleString("en-IN")}</td><td>₹${Number(t.balance_before).toLocaleString("en-IN")}</td><td>₹${Number(t.balance_after).toLocaleString("en-IN")}</td><td>${esc(t.description)}</td></tr>`).join("")||"<tr><td colspan=6>No transactions yet.</td></tr>";
+  $("transactionsBody").innerHTML=rows.map(t=>`<tr><td>${formatDate(t.created_at)}</td><td>${esc(t.username||"SYSTEM")}</td><td>${esc(t.type)}</td><td class="${t.amount<0?"debit":"credit"}">${t.amount<0?"":"+"}₹${Math.abs(Number(t.amount)).toLocaleString("en-IN")}</td><td>₹${Number(t.balance_before).toLocaleString("en-IN")}</td><td>₹${Number(t.balance_after).toLocaleString("en-IN")}</td><td>${esc(t.description)}</td></tr>`).join("")||"<tr><td colspan=7>No transactions yet.</td></tr>";
 }
+async function loadSettings(){
+  if(me?.role!=="admin")return;
+  try{
+    const s=await api("/api/settings");
+    $("settingPanelName").value=s.panel_name||"";
+    $("settingDefaultGame").value=s.default_game||"";
+    $("settingMaintenance").value=s.maintenance_mode==="1"?"1":"0";
+  }catch(e){$("settingsMsg").textContent=e.message}
+}
+async function saveSettings(){
+  try{
+    await api("/api/settings",{method:"PATCH",body:JSON.stringify({panel_name:$("settingPanelName").value,default_game:$("settingDefaultGame").value,maintenance_mode:$("settingMaintenance").value})});
+    $("settingsMsg").textContent="Settings saved.";
+    setTimeout(()=>{if($("settingsMsg"))$("settingsMsg").textContent=""},2200);
+  }catch(e){$("settingsMsg").textContent=e.message}
+}
+
 async function loadRefs(){
   const rows=await api("/api/referrals");
   $("myRef").textContent=me?.username==="admin"?"RNTXADMIN":"Your reseller referral code is shown in your account";
