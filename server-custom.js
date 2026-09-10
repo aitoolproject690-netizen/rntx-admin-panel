@@ -1,11 +1,33 @@
 const express = require("express");
 const Database = require("better-sqlite3");
+const path = require("path");
 
 const originalPost = express.application.post;
+const originalGet = express.application.get;
 const originalListen = express.application.listen;
 const originalPrepare = Database.prototype.prepare;
 let capturedApp = null;
 let listenArgs = null;
+
+// Allow /admin and /reseller to show the login screen even when the browser
+// currently has a session for the other panel. This makes the two URLs usable
+// as separate entry points without exposing protected panel data.
+express.application.get = function(routePath, ...handlers) {
+  if ((routePath === "/admin" || routePath === "/reseller") && handlers.length) {
+    const panel = routePath === "/reseller" ? "reseller" : "admin";
+    const originalHandler = handlers[handlers.length - 1];
+    handlers[handlers.length - 1] = function(req, res, next) {
+      const currentRole = req.session?.user?.role;
+      if (currentRole && currentRole !== panel) {
+        return req.session.destroy(() => {
+          res.sendFile(path.join(__dirname, "public", "index.html"));
+        });
+      }
+      return originalHandler(req, res, next);
+    };
+  }
+  return originalGet.call(this, routePath, ...handlers);
+};
 
 // The panel uses duration pricing as a per-device price. Keep the existing
 // server key-generation flow, but make its pricing lookup return
@@ -31,8 +53,8 @@ Database.prototype.prepare = function(sql) {
 
 // Extend the existing /api/keys route validation while preserving the
 // original handler and its transactional wallet/order/key logic.
-express.application.post = function(path, ...handlers) {
-  if (path === "/api/keys" && handlers.length) {
+express.application.post = function(routePath, ...handlers) {
+  if (routePath === "/api/keys" && handlers.length) {
     const originalHandler = handlers[handlers.length - 1];
     handlers[handlers.length - 1] = function(req, res, next) {
       const devices = Number(req.body?.maxDevices);
@@ -43,7 +65,7 @@ express.application.post = function(path, ...handlers) {
       return originalHandler(req, res, next);
     };
   }
-  return originalPost.call(this, path, ...handlers);
+  return originalPost.call(this, routePath, ...handlers);
 };
 
 // server.js starts listening during require(). Capture that call so we can
@@ -73,7 +95,7 @@ capturedApp.post("/api/pricing-tiers/custom", (req, res) => {
   const deviceLimit = Number(req.body?.deviceLimit);
   const price = Number(req.body?.price);
   if (!duration) return res.status(400).json({error: "Duration is required"});
-  if (!Number.isInteger(deviceLimit) || deviceLimit < 1 || deviceLimit > 2000) return res.status(400).json({error: "Custom device count must be a whole number between 1 and 2000"});
+  if (!Number.isInteger(deviceLimit) || deviceLimit < 1 || deviceLimit > 2000) return res.status(400).json({error: "Custom device count must be a whole number from 1 to 2000"});
   if (!Number.isInteger(price) || price < 0 || price > 100000000) return res.status(400).json({error: "Price must be a whole number between ₹0 and ₹100,000,000"});
   const plan = db.prepare("SELECT duration FROM pricing_plans WHERE duration=? AND active=1").get(duration);
   if (!plan) return res.status(400).json({error: "Choose an active license duration"});
