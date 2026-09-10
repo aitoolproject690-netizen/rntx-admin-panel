@@ -1,16 +1,24 @@
 (function(){
   const $id=id=>document.getElementById(id);
+  const state={me:null,pricingTiers:[]};
+
+  async function refreshState(){
+    try{
+      const d=await api("/api/me");
+      if(d.user)state.me=d.user;
+    }catch{}
+  }
 
   function customMax(){
-    const accountMax=window.me?.role==="reseller"?Number(window.me.max_device_limit||2000):2000;
-    return Math.min(2000, Number.isInteger(accountMax)&&accountMax>0?accountMax:2000);
+    const accountMax=state.me?.role==="reseller"?Number(state.me.max_device_limit||2000):2000;
+    return Math.min(2000,Number.isInteger(accountMax)&&accountMax>0?accountMax:2000);
   }
 
   function renderDeviceOptionsCustom(preferred){
     const duration=$id("duration")?.value;
     if(!duration||!$id("devices"))return;
     const max=customMax();
-    const options=(window.pricingTiers||[])
+    const options=state.pricingTiers
       .filter(x=>x.active&&x.duration===duration&&Number(x.device_limit)<=max)
       .sort((a,b)=>Number(a.device_limit)-Number(b.device_limit));
 
@@ -26,7 +34,7 @@
   }
 
   function syncCustomDeviceUI(){
-    const select=$id("devices"), wrap=$id("customDevicesWrap"), input=$id("customDevices");
+    const select=$id("devices"),wrap=$id("customDevicesWrap"),input=$id("customDevices");
     if(!select||!wrap||!input)return;
     const custom=select.value==="__CUSTOM__";
     wrap.classList.toggle("hidden",!custom);
@@ -36,7 +44,7 @@
   }
 
   function updateCustomDevicePrice(){
-    const select=$id("devices"), input=$id("customDevices"), msg=$id("customDevicePrice");
+    const select=$id("devices"),input=$id("customDevices"),msg=$id("customDevicePrice");
     if(!select||!input||!msg||select.value!=="__CUSTOM__")return;
     const count=Number(input.value);
     const max=customMax();
@@ -45,8 +53,8 @@
       return;
     }
     const duration=$id("duration")?.value;
-    const tier=(window.pricingTiers||[]).find(x=>x.active&&x.duration===duration&&Number(x.device_limit)===count);
-    if(window.me?.role==="reseller"){
+    const tier=state.pricingTiers.find(x=>x.active&&x.duration===duration&&Number(x.device_limit)===count);
+    if(state.me?.role==="reseller"){
       msg.textContent=tier?`Configured reseller price: ₹${Number(tier.price).toLocaleString("en-IN")}`:`No price configured for ${count} devices. Admin must add this custom price in Pricing.`;
     }else{
       msg.textContent=`Custom device count: ${count}. Admin license generation does not deduct reseller wallet balance.`;
@@ -54,7 +62,7 @@
   }
 
   window.renderCreateOptions=function(){
-    const durations=[...new Set((window.pricingTiers||[]).filter(x=>x.active).map(x=>x.duration))];
+    const durations=[...new Set(state.pricingTiers.filter(x=>x.active).map(x=>x.duration))];
     const oldDuration=$id("duration")?.value;
     const oldDevices=$id("devices")?.value;
     $id("duration").innerHTML=durations.map(x=>`<option>${esc(x)}</option>`).join("");
@@ -67,6 +75,7 @@
 
   window.createKey=async function(){
     try{
+      await refreshState();
       const duration=$id("duration").value;
       const custom=$id("devices").value==="__CUSTOM__";
       const devices=custom?Number($id("customDevices").value):Number($id("devices").value);
@@ -75,8 +84,8 @@
         $id("copyMsg").textContent=`Device count must be a whole number between 1 and ${max}.`;
         return;
       }
-      if(custom&&window.me?.role==="reseller"){
-        const tier=(window.pricingTiers||[]).find(x=>x.active&&x.duration===duration&&Number(x.device_limit)===devices);
+      if(custom&&state.me?.role==="reseller"){
+        const tier=state.pricingTiers.find(x=>x.active&&x.duration===duration&&Number(x.device_limit)===devices);
         if(!tier){
           $id("copyMsg").textContent=`No price is configured for ${devices} devices for ${duration}. Ask admin to add this custom price in Pricing.`;
           return;
@@ -95,12 +104,21 @@
     }catch(e){$id("copyMsg").textContent=e.message}
   };
 
+  window.loadCreate=async function(){
+    try{
+      await refreshState();
+      state.pricingTiers=await api("/api/pricing-tiers");
+      renderCreateOptions();
+    }catch(e){$id("copyMsg").textContent=e.message}
+  };
+
   window.loadPricing=async function(){
     try{
+      await refreshState();
       const rows=await api("/api/pricing-tiers");
-      window.pricingTiers=rows;
-      $id("pricingBody").innerHTML=rows.map(t=>`<tr><td>${esc(t.duration)}</td><td>${t.device_limit}</td><td>${window.me.role==="admin"?`<input class="price-edit" id="tier-${t.id}" type="number" min="0" value="${t.price}">`:`₹${Number(t.price).toLocaleString("en-IN")}`}</td>${window.me.role==="admin"?`<td><button class="small" onclick="saveTier(${t.id})">SAVE</button></td>`:""}</tr>`).join("");
-      if(window.me.role==="admin"){
+      state.pricingTiers=rows;
+      $id("pricingBody").innerHTML=rows.map(t=>`<tr><td>${esc(t.duration)}</td><td>${t.device_limit}</td><td>${state.me?.role==="admin"?`<input class="price-edit" id="tier-${t.id}" type="number" min="0" value="${t.price}">`:`₹${Number(t.price).toLocaleString("en-IN")}`}</td>${state.me?.role==="admin"?`<td><button class="small" onclick="saveTier(${t.id})">SAVE</button></td>`:""}</tr>`).join("");
+      if(state.me?.role==="admin"){
         const durations=[...new Set(rows.filter(x=>x.active).map(x=>x.duration))];
         const select=$id("customTierDuration");
         const old=select.value;
@@ -125,18 +143,13 @@
     }catch(e){msg.textContent=e.message}
   };
 
-  const originalApplyRoleUI=window.applyRoleUI;
-  window.applyRoleUI=function(){
-    if(originalApplyRoleUI)originalApplyRoleUI();
-    const card=$id("customTierCard");
-    if(card)card.classList.toggle("hidden",window.me?.role!=="admin");
-  };
-
-  const originalLoadCreate=window.loadCreate;
-  window.loadCreate=async function(){
-    try{
-      window.pricingTiers=await api("/api/pricing-tiers");
-      renderCreateOptionsCustom();
-    }catch(e){$id("copyMsg").textContent=e.message}
+  const originalSaveTier=window.saveTier;
+  window.saveTier=async function(id){
+    if(originalSaveTier)await originalSaveTier(id);
+    else{
+      await api("/api/pricing-tiers/"+id,{method:"PATCH",body:JSON.stringify({price:Number($id("tier-"+id).value)})});
+      await loadPricing();
+    }
+    if(!$id("create").classList.contains("hidden"))await loadCreate();
   };
 })();
