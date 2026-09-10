@@ -1,155 +1,84 @@
 (function(){
   const $id=id=>document.getElementById(id);
-  const state={me:null,pricingTiers:[]};
+  const state={me:null,plans:[]};
 
   async function refreshState(){
-    try{
-      const d=await api("/api/me");
-      if(d.user)state.me=d.user;
-    }catch{}
+    try{const d=await api("/api/me");if(d.user)state.me=d.user;}catch{}
   }
 
-  function customMax(){
-    const accountMax=state.me?.role==="reseller"?Number(state.me.max_device_limit||2000):2000;
-    return Math.min(2000,Number.isInteger(accountMax)&&accountMax>0?accountMax:2000);
+  function maxDevices(){
+    const n=state.me?.role==="reseller"?Number(state.me.max_device_limit||2000):2000;
+    return Number.isInteger(n)&&n>0?Math.min(2000,n):2000;
   }
 
-  function renderDeviceOptionsCustom(preferred){
+  function selectedPlan(){
     const duration=$id("duration")?.value;
-    if(!duration||!$id("devices"))return;
-    const max=customMax();
-    const options=state.pricingTiers
-      .filter(x=>x.active&&x.duration===duration&&Number(x.device_limit)<=max)
-      .sort((a,b)=>Number(a.device_limit)-Number(b.device_limit));
-
-    $id("devices").innerHTML=options.map(x=>`<option value="${x.device_limit}">${x.device_limit} device${Number(x.device_limit)===1?"":"s"} — ₹${Number(x.price).toLocaleString("en-IN")}</option>`).join("")+
-      `<option value="__CUSTOM__">Custom Devices</option>`;
-
-    if(preferred!==undefined&&preferred!==null&&String(preferred)!==""&&options.some(x=>String(x.device_limit)===String(preferred))){
-      $id("devices").value=String(preferred);
-    }else if(String(preferred)==="__CUSTOM__"){
-      $id("devices").value="__CUSTOM__";
-    }
-    syncCustomDeviceUI();
+    return state.plans.find(p=>p.active&&p.duration===duration)||null;
   }
 
-  function syncCustomDeviceUI(){
-    const select=$id("devices"),wrap=$id("customDevicesWrap"),input=$id("customDevices");
-    if(!select||!wrap||!input)return;
-    const custom=select.value==="__CUSTOM__";
-    wrap.classList.toggle("hidden",!custom);
-    input.max=String(customMax());
-    input.oninput=updateCustomDevicePrice;
-    updateCustomDevicePrice();
-  }
-
-  function updateCustomDevicePrice(){
-    const select=$id("devices"),input=$id("customDevices"),msg=$id("customDevicePrice");
-    if(!select||!input||!msg||select.value!=="__CUSTOM__")return;
-    const count=Number(input.value);
-    const max=customMax();
-    if(!Number.isInteger(count)||count<1||count>max){
-      msg.textContent=`Enter a whole number from 1 to ${max} devices.`;
+  function updateEstimation(){
+    const input=$id("devices"),out=$id("licenseEstimation");
+    if(!input||!out)return;
+    const devices=Number(input.value),max=maxDevices(),plan=selectedPlan();
+    if(!Number.isInteger(devices)||devices<1||devices>max){
+      out.textContent=`Enter a whole number from 1 to ${max} devices.`;
       return;
     }
-    const duration=$id("duration")?.value;
-    const tier=state.pricingTiers.find(x=>x.active&&x.duration===duration&&Number(x.device_limit)===count);
-    if(state.me?.role==="reseller"){
-      msg.textContent=tier?`Configured reseller price: ₹${Number(tier.price).toLocaleString("en-IN")}`:`No price configured for ${count} devices. Admin must add this custom price in Pricing.`;
-    }else{
-      msg.textContent=`Custom device count: ${count}. Admin license generation does not deduct reseller wallet balance.`;
-    }
+    if(!plan){out.textContent="Select an active duration.";return;}
+    const total=Number(plan.price)*devices;
+    out.textContent=`Estimation: ${devices} × ₹${Number(plan.price).toLocaleString("en-IN")}/Device = ₹${total.toLocaleString("en-IN")}`;
   }
 
-  window.renderCreateOptions=function(){
-    const durations=[...new Set(state.pricingTiers.filter(x=>x.active).map(x=>x.duration))];
+  function renderCreate(){
+    const durations=[...new Set(state.plans.filter(x=>x.active).map(x=>x.duration))];
     const oldDuration=$id("duration")?.value;
-    const oldDevices=$id("devices")?.value;
-    $id("duration").innerHTML=durations.map(x=>`<option>${esc(x)}</option>`).join("");
+    $id("duration").innerHTML=durations.map(x=>{
+      const p=state.plans.find(y=>y.active&&y.duration===x);
+      return `<option value="${escapeAttr(x)}">${esc(x)} — ₹${Number(p?.price||0).toLocaleString("en-IN")}/Device</option>`;
+    }).join("");
     if(durations.includes(oldDuration))$id("duration").value=oldDuration;
-    $id("duration").onchange=function(){renderDeviceOptionsCustom();};
-    renderDeviceOptionsCustom(oldDevices);
+    $id("devices").max=String(maxDevices());
+    $id("duration").onchange=updateEstimation;
+    $id("devices").oninput=updateEstimation;
+    updateEstimation();
+  }
+
+  window.loadCreate=async function(){
+    try{await refreshState();state.plans=await api("/api/plans");renderCreate();}
+    catch(e){$id("copyMsg").textContent=e.message}
   };
 
-  window.renderDeviceOptions=renderDeviceOptionsCustom;
+  window.renderCreateOptions=renderCreate;
+  window.renderDeviceOptions=updateEstimation;
 
   window.createKey=async function(){
     try{
       await refreshState();
+      state.plans=await api("/api/plans");
       const duration=$id("duration").value;
-      const custom=$id("devices").value==="__CUSTOM__";
-      const devices=custom?Number($id("customDevices").value):Number($id("devices").value);
-      const max=customMax();
-      if(!Number.isInteger(devices)||devices<1||devices>max){
-        $id("copyMsg").textContent=`Device count must be a whole number between 1 and ${max}.`;
-        return;
-      }
-      if(custom&&state.me?.role==="reseller"){
-        const tier=state.pricingTiers.find(x=>x.active&&x.duration===duration&&Number(x.device_limit)===devices);
-        if(!tier){
-          $id("copyMsg").textContent=`No price is configured for ${devices} devices for ${duration}. Ask admin to add this custom price in Pricing.`;
-          return;
-        }
-      }
-
-      const body={game:$id("game").value,duration,maxDevices:devices};
-      if(custom)body.customDevices=devices;
-      const d=await api("/api/keys",{method:"POST",body:JSON.stringify(body)});
+      const devices=Number($id("devices").value);
+      const max=maxDevices();
+      const plan=selectedPlan();
+      if(!Number.isInteger(devices)||devices<1||devices>max){$id("copyMsg").textContent=`Device count must be a whole number between 1 and ${max}.`;return;}
+      if(!plan){$id("copyMsg").textContent="Choose an active duration.";return;}
+      const d=await api("/api/keys",{method:"POST",body:JSON.stringify({game:$id("game").value,duration,maxDevices:devices})});
       const keys=d.keys?.length?d.keys:[{key:d.key}];
       $id("newKey").classList.remove("hidden");
       $id("newKey").innerHTML=keys.map(item=>`<div class="copy-row"><code>${esc(item.key)}</code><button class="copy-button" onclick="copyKey('${escapeAttr(item.key)}',this)">COPY KEY</button></div>`).join("");
-      $id("copyMsg").textContent=custom?`License generated for ${devices} devices.`:"";
-      toastCopyMessage("License generated successfully.");
-      loadKeys();loadDash();
-    }catch(e){$id("copyMsg").textContent=e.message}
-  };
-
-  window.loadCreate=async function(){
-    try{
-      await refreshState();
-      state.pricingTiers=await api("/api/pricing-tiers");
-      renderCreateOptions();
+      $id("copyMsg").textContent="";toastCopyMessage(`License generated for ${devices} device${devices===1?"":"s"}.`);loadKeys();loadDash();
     }catch(e){$id("copyMsg").textContent=e.message}
   };
 
   window.loadPricing=async function(){
     try{
       await refreshState();
-      const rows=await api("/api/pricing-tiers");
-      state.pricingTiers=rows;
-      $id("pricingBody").innerHTML=rows.map(t=>`<tr><td>${esc(t.duration)}</td><td>${t.device_limit}</td><td>${state.me?.role==="admin"?`<input class="price-edit" id="tier-${t.id}" type="number" min="0" value="${t.price}">`:`₹${Number(t.price).toLocaleString("en-IN")}`}</td>${state.me?.role==="admin"?`<td><button class="small" onclick="saveTier(${t.id})">SAVE</button></td>`:""}</tr>`).join("");
-      if(state.me?.role==="admin"){
-        const durations=[...new Set(rows.filter(x=>x.active).map(x=>x.duration))];
-        const select=$id("customTierDuration");
-        const old=select.value;
-        select.innerHTML=durations.map(x=>`<option>${esc(x)}</option>`).join("");
-        if(durations.includes(old))select.value=old;
-      }
+      const rows=await api("/api/plans");state.plans=rows;
+      $id("pricingBody").innerHTML=rows.map(t=>`<tr><td>${esc(t.duration)}</td><td>${state.me?.role==="admin"?`<input class="price-edit" id="plan-${t.id}" type="number" min="0" max="100000000" value="${t.price}">`:`₹${Number(t.price).toLocaleString("en-IN")}/Device`}</td>${state.me?.role==="admin"?`<td><button class="small" onclick="saveTier(${t.id})">SAVE</button></td>`:""}</tr>`).join("")||"<tr><td colspan="3">No pricing plans found.</td></tr>";
     }catch(e){alert(e.message)}
   };
 
-  window.saveCustomTier=async function(){
-    const msg=$id("customTierMsg");
-    try{
-      const duration=$id("customTierDuration").value;
-      const deviceLimit=Number($id("customTierDevices").value);
-      const price=Number($id("customTierPrice").value);
-      if(!Number.isInteger(deviceLimit)||deviceLimit<1||deviceLimit>2000)throw Error("Custom device count must be a whole number between 1 and 2000");
-      if(!Number.isInteger(price)||price<0||price>100000000)throw Error("Price must be a whole number between ₹0 and ₹100,000,000");
-      await api("/api/pricing-tiers/custom",{method:"POST",body:JSON.stringify({duration,deviceLimit,price})});
-      msg.textContent=`Custom price saved: ${duration} / ${deviceLimit} devices = ₹${price.toLocaleString("en-IN")}`;
-      await loadPricing();
-      if(!$id("create").classList.contains("hidden"))await loadCreate();
-    }catch(e){msg.textContent=e.message}
-  };
-
-  const originalSaveTier=window.saveTier;
   window.saveTier=async function(id){
-    if(originalSaveTier)await originalSaveTier(id);
-    else{
-      await api("/api/pricing-tiers/"+id,{method:"PATCH",body:JSON.stringify({price:Number($id("tier-"+id).value)})});
-      await loadPricing();
-    }
-    if(!$id("create").classList.contains("hidden"))await loadCreate();
+    try{await api("/api/plans/"+id,{method:"PATCH",body:JSON.stringify({price:Number($id("plan-"+id).value)})});await loadPricing();if(!$id("create").classList.contains("hidden"))await loadCreate();}
+    catch(e){alert(e.message)}
   };
 })();
