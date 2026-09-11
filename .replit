@@ -9,7 +9,7 @@ runButton = "Project"
 [[workflows.workflow]]
 name = "Project"
 mode = "parallel"
-author = "agent"
+author = "system"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
@@ -17,11 +17,11 @@ args = "Start application"
 
 [[workflows.workflow]]
 name = "Start application"
-author = "agent"
+author = "system"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "PORT=5000 npm start"
+args = "npm start"
 waitForPort = 5000
 
 [workflows.workflow.metadata]
