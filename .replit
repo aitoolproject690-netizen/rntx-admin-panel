@@ -8,7 +8,7 @@ runButton = "Project"
 
 [[workflows.workflow]]
 name = "Project"
-mode = "parallel"
+mode = "sequential"
 author = "system"
 
 [[workflows.workflow.tasks]]
@@ -30,3 +30,6 @@ outputType = "webview"
 [[ports]]
 localPort = 5000
 externalPort = 80
+
+[deployment]
+run = ["npm", "start"]
