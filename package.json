@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "prestart": "npm rebuild better-sqlite3",
-    "start": "node startup.js"
+    "start": "node server-custom.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
