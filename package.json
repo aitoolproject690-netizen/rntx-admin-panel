@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "start": "node startup.js"
+    "start": "node server-custom.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
