@@ -6,8 +6,7 @@
     "node": "20.x"
   },
   "scripts": {
-    "prestart": "npm rebuild better-sqlite3",
-    "start": "node server-custom.js"
+    "start": "npm install --no-audit --no-fund --prefer-online && npm rebuild better-sqlite3 && node server-custom.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
