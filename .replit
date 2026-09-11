@@ -4,29 +4,7 @@ modules = ["nodejs-20"]
 channel = "stable-25_05"
 packages = ["unzip"]
 
-[workflows]
-runButton = "Project"
-
-[[workflows.workflow]]
-name = "Project"
-mode = "sequential"
-author = "system"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Start application"
-
-[[workflows.workflow]]
-name = "Start application"
-author = "system"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "npm start"
-waitForPort = 5000
-
-[workflows.workflow.metadata]
-outputType = "webview"
+run = "npm start"
 
 [[ports]]
 localPort = 5000
