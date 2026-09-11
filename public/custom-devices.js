@@ -1,5 +1,7 @@
 (function(){
   const $id=id=>document.getElementById(id);
+  const esc=value=>String(value??"").replace(/[&<>\"]/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[ch]));
+  const escapeAttr=value=>String(value??"").replace(/\\/g,"\\\\").replace(/'/g,"\\'");
   const state={me:null,plans:[]};
 
   async function refreshState(){
@@ -26,7 +28,7 @@
     }
     if(!plan){out.textContent="Select an active duration.";return;}
     const total=Number(plan.price)*devices;
-    out.textContent=`Estimation: ${devices} × ₹${Number(plan.price).toLocaleString("en-IN")}/Device = ₹${total.toLocaleString("en-IN")}`;
+    out.textContent=`Price: ₹${Number(plan.price).toLocaleString("en-IN")} / Device • Estimated deduction: ₹${total.toLocaleString("en-IN")}`;
   }
 
   function renderCreate(){
@@ -34,7 +36,7 @@
     const oldDuration=$id("duration")?.value;
     $id("duration").innerHTML=durations.map(x=>{
       const p=state.plans.find(y=>y.active&&y.duration===x);
-      return `<option value="${escapeAttr(x)}">${esc(x)} — ₹${Number(p?.price||0).toLocaleString("en-IN")}/Device</option>`;
+      return `<option value="${escapeAttr(x)}">${esc(x)} — ₹${Number(p?.price||0).toLocaleString("en-IN")} / Device</option>`;
     }).join("");
     if(durations.includes(oldDuration))$id("duration").value=oldDuration;
     $id("devices").max=String(maxDevices());
