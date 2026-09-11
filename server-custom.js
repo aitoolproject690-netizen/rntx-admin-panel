@@ -1,6 +1,66 @@
 const express = require("express");
 const Database = require("better-sqlite3");
 const path = require("path");
+const session = require("express-session");
+
+// Render/Replit can restart the Node process while the browser still has the
+// session cookie. The default express-session MemoryStore then loses the
+// session and protected actions incorrectly return "Login required". Keep
+// sessions in a small SQLite store so restarts do not invalidate the browser
+// session immediately.
+class SQLiteSessionStore extends session.Store {
+  constructor(filename = "rntx-sessions.db") {
+    super();
+    this.db = new Database(filename);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS sessions (
+      sid TEXT PRIMARY KEY,
+      sess TEXT NOT NULL,
+      expires_at INTEGER
+    )`);
+  }
+  get(sid, cb) {
+    try {
+      const row = this.db.prepare("SELECT sess,expires_at FROM sessions WHERE sid=?").get(sid);
+      if (!row) return cb(null, null);
+      if (row.expires_at && row.expires_at <= Date.now()) {
+        this.db.prepare("DELETE FROM sessions WHERE sid=?").run(sid);
+        return cb(null, null);
+      }
+      cb(null, JSON.parse(row.sess));
+    } catch (err) { cb(err); }
+  }
+  set(sid, sess, cb) {
+    try {
+      const expiresAt = sess?.cookie?.expires ? Date.parse(sess.cookie.expires) :
+        (sess?.cookie?.maxAge ? Date.now() + Number(sess.cookie.maxAge) : null);
+      this.db.prepare("INSERT OR REPLACE INTO sessions(sid,sess,expires_at) VALUES(?,?,?)")
+        .run(sid, JSON.stringify(sess), Number.isFinite(expiresAt) ? expiresAt : null);
+      cb && cb(null);
+    } catch (err) { cb && cb(err); }
+  }
+  destroy(sid, cb) {
+    try { this.db.prepare("DELETE FROM sessions WHERE sid=?").run(sid); cb && cb(null); }
+    catch (err) { cb && cb(err); }
+  }
+  touch(sid, sess, cb) {
+    try {
+      const expiresAt = sess?.cookie?.expires ? Date.parse(sess.cookie.expires) :
+        (sess?.cookie?.maxAge ? Date.now() + Number(sess.cookie.maxAge) : null);
+      this.db.prepare("UPDATE sessions SET expires_at=? WHERE sid=?")
+        .run(Number.isFinite(expiresAt) ? expiresAt : null, sid);
+      cb && cb(null);
+    } catch (err) { cb && cb(err); }
+  }
+}
+
+const persistentSession = session;
+const originalSessionMiddleware = session;
+function sessionWithPersistentStore(options = {}) {
+  return originalSessionMiddleware({ ...options, store: options.store || new SQLiteSessionStore() });
+}
+Object.setPrototypeOf(sessionWithPersistentStore, persistentSession);
+for (const key of Object.keys(persistentSession)) sessionWithPersistentStore[key] = persistentSession[key];
+require.cache[require.resolve("express-session")].exports = sessionWithPersistentStore;
 
 const originalPost = express.application.post;
 const originalGet = express.application.get;
