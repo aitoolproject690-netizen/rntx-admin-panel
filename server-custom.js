@@ -2,6 +2,9 @@ const express = require("express");
 const Database = require("better-sqlite3");
 const path = require("path");
 const session = require("express-session");
+const fs = require("fs");
+const zlib = require("zlib");
+const { Client } = require("pg");
 
 class SQLiteSessionStore extends session.Store {
   constructor(filename = "rntx-sessions.db") { super(); this.db = new Database(filename); this.db.exec(`CREATE TABLE IF NOT EXISTS sessions (sid TEXT PRIMARY KEY, sess TEXT NOT NULL, expires_at INTEGER)`); }
@@ -27,8 +30,6 @@ Database.prototype.prepare=function(sql){const statement=originalPrepare.call(th
 
 express.application.post=function(routePath,...handlers){if(routePath==="/api/keys"&&handlers.length){const h=handlers[handlers.length-1];handlers[handlers.length-1]=function(req,res,next){const devices=Number(req.body?.maxDevices);if(!Number.isInteger(devices)||devices<1||devices>2000)return res.status(400).json({error:"Device count must be a whole number between 1 and 2000"});req.body.maxDevices=devices;return h(req,res,next);};}return originalPost.call(this,routePath,...handlers);};
 
-// Allow reseller-owned keys to use the existing secure key-status endpoint.
-// Admin behavior remains unchanged; a reseller may only change status of keys they own.
 express.application.patch=function(routePath,...handlers){
   if(routePath==="/api/keys/:id"&&handlers.length>=2){
     const adminMiddleware=handlers[0], finalHandler=handlers[handlers.length-1];
@@ -55,7 +56,36 @@ if(!capturedApp||!listenArgs)throw new Error("Could not initialize RNTX server w
 const db=new Database("rntx.db");
 
 capturedApp.post("/api/pricing-tiers/custom",(req,res)=>{const sessionUser=req.session?.user;if(!sessionUser)return res.status(401).json({error:"Login required"});const user=db.prepare("SELECT id,username,role,active FROM users WHERE id=?").get(sessionUser.id);const mainAdmin=db.prepare("SELECT id FROM users WHERE role='admin' ORDER BY id ASC LIMIT 1").get();if(!user||!user.active||user.role!=="admin"||!mainAdmin||user.id!==mainAdmin.id)return res.status(403).json({error:"Main admin only"});const duration=String(req.body?.duration||"").trim().slice(0,50),deviceLimit=Number(req.body?.deviceLimit),price=Number(req.body?.price);if(!duration)return res.status(400).json({error:"Duration is required"});if(!Number.isInteger(deviceLimit)||deviceLimit<1||deviceLimit>2000)return res.status(400).json({error:"Custom device count must be a whole number from 1 to 2000"});if(!Number.isInteger(price)||price<0||price>100000000)return res.status(400).json({error:"Price must be a whole number between ₹0 and ₹100,000,000"});const plan=db.prepare("SELECT duration FROM pricing_plans WHERE duration=? AND active=1").get(duration);if(!plan)return res.status(400).json({error:"Choose an active license duration"});const existing=db.prepare("SELECT id FROM pricing_tiers WHERE duration=? AND device_limit=?").get(duration,deviceLimit);if(existing)db.prepare("UPDATE pricing_tiers SET price=?,active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?").run(price,existing.id);else db.prepare("INSERT INTO pricing_tiers(duration,device_limit,price,active,sort_order) VALUES(?,?,?,1,?)").run(duration,deviceLimit,price,1);try{db.prepare(`INSERT INTO audit_logs(event_type,user_id,username,metadata) VALUES(?,?,?,?)`).run("CUSTOM_PRICING_TIER_UPDATED",user.id,user.username,JSON.stringify({duration,deviceLimit,price}));}catch{}res.json({ok:true,duration,device_limit:deviceLimit,price});});
-
 capturedApp.get("/api/pricing",(req,res)=>{const user=req.session?.user;if(!user)return res.status(401).json({error:"Login required"});res.json(db.prepare("SELECT id,duration,price,active,sort_order,updated_at FROM pricing_plans ORDER BY sort_order,id").all());});
 capturedApp.get("/api/audit",(req,res)=>{const user=req.session?.user;if(!user)return res.status(401).json({error:"Login required"});res.json(db.prepare("SELECT id,event_type,user_id,username,ip_address,metadata,created_at FROM audit_logs ORDER BY id DESC LIMIT 200").all());});
+
+const DATABASE_URL=process.env.DATABASE_URL;
+const SNAPSHOT_TABLE="rntx_persistent_state";
+let persistTimer=null;
+let persistBusy=false;
+let persistAgain=false;
+async function persistSnapshot(){
+  if(!DATABASE_URL)return;
+  if(persistBusy){persistAgain=true;return;}
+  persistBusy=true;
+  try{
+    const appDb=fs.existsSync(path.join(__dirname,"rntx.db"))?zlib.gzipSync(fs.readFileSync(path.join(__dirname,"rntx.db"))):null;
+    const sessionDb=fs.existsSync(path.join(__dirname,"rntx-sessions.db"))?zlib.gzipSync(fs.readFileSync(path.join(__dirname,"rntx-sessions.db"))):null;
+    if(!appDb&&!sessionDb)return;
+    const client=new Client({connectionString:DATABASE_URL,ssl:{rejectUnauthorized:false}});
+    await client.connect();
+    try{
+      await client.query(`CREATE TABLE IF NOT EXISTS ${SNAPSHOT_TABLE} (id INTEGER PRIMARY KEY, app_db BYTEA, session_db BYTEA, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
+      await client.query(`INSERT INTO ${SNAPSHOT_TABLE}(id,app_db,session_db,updated_at) VALUES(1,$1,$2,NOW()) ON CONFLICT(id) DO UPDATE SET app_db=EXCLUDED.app_db,session_db=EXCLUDED.session_db,updated_at=NOW()`,[appDb,sessionDb]);
+    }finally{await client.end();}
+  }catch(err){console.error("PostgreSQL snapshot failed:",err.message);}
+  finally{
+    persistBusy=false;
+    if(persistAgain){persistAgain=false;setTimeout(persistSnapshot,100);}
+  }
+}
+function schedulePersist(){if(!DATABASE_URL)return;clearTimeout(persistTimer);persistTimer=setTimeout(persistSnapshot,750);}
+capturedApp.use((req,res,next)=>{res.on("finish",()=>{if(["POST","PUT","PATCH","DELETE"].includes(req.method)&&req.path.startsWith("/api/"))schedulePersist();});next();});
+
 originalListen.apply(capturedApp,listenArgs);
+setTimeout(persistSnapshot,1500);
