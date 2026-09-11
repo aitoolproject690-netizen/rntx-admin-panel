@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "prestart": "npm rebuild better-sqlite3",
     "start": "node server-custom.js"
   },
   "dependencies": {
