@@ -1,65 +1,46 @@
-/* RNTX reference-fidelity layer: preserves the supplied dashboard composition while making it behave cleanly on phones. */
-#app.rntx-premium header .brand{min-width:300px!important}
+/* RNTX reference fidelity: target canvas is 1536x1024. Keep the same composition and proportions on every viewport. */
+#app.rntx-premium{width:1536px;min-height:1024px;background:#070914;overflow:hidden}
+#app.rntx-premium header{width:1536px;height:72px!important;padding:0 28px 0 32px!important;box-sizing:border-box!important}
+#app.rntx-premium header .brand{min-width:365px!important;width:365px!important;gap:12px!important}
 #app.rntx-premium header .brand:before{content:none!important;display:none!important}
-#app.rntx-premium header .rntx-logo{display:inline-block!important}
-#app.rntx-premium main{padding-top:30px!important}
-#app.rntx-premium .rntx-welcome{min-height:68px;align-items:center}
-#app.rntx-premium .rntx-kpis{grid-template-columns:repeat(4,minmax(0,1fr))!important}
-#app.rntx-premium .rntx-main-grid,#app.rntx-premium .rntx-bottom-grid{grid-template-columns:minmax(0,1.55fr) minmax(285px,.85fr)!important}
-#app.rntx-premium .rntx-kpi{min-height:188px!important}
-#app.rntx-premium .rntx-panel{min-height:0}
-@media(max-width:1100px){
-  #app.rntx-premium .brand{min-width:250px!important}
-  #app.rntx-premium .rntx-kpi{min-height:150px!important}
-}
-@media(max-width:700px){
-  #app.rntx-premium header{height:58px!important;padding:0 12px!important}
-  #app.rntx-premium header .brand{min-width:150px!important;gap:7px!important}
-  #app.rntx-premium .rntx-logo{font-size:21px!important;letter-spacing:-1.5px!important}
-  #app.rntx-premium .rntx-brand-sub{font-size:9px!important;letter-spacing:.2px!important}
-  #app.rntx-premium .rntx-top-search{display:block!important;max-width:none!important;flex:1!important}
-  #app.rntx-premium .rntx-top-search input{height:34px!important;padding:8px 8px 8px 30px!important;font-size:9px!important}
-  #app.rntx-premium .rntx-top-search:before{left:9px!important;top:4px!important;font-size:15px!important}
-  #app.rntx-premium .rntx-top-actions{gap:6px!important}
-  #app.rntx-premium .rntx-top-actions .rntx-icon{display:none!important}
-  #app.rntx-premium .rntx-profile div{display:none!important}
-  #app.rntx-premium .rntx-chevron{display:none!important}
-  #app.rntx-premium .rntx-avatar{width:29px!important;height:29px!important}
-  #app.rntx-premium nav{top:58px!important;width:158px!important;height:calc(100vh - 58px)!important;padding:16px 9px!important}
-  #app.rntx-premium nav button{min-height:39px!important;padding:9px 9px!important;font-size:9px!important;margin:3px 0!important;border-radius:9px!important}
-  #app.rntx-premium main{margin-left:158px!important;padding:16px 9px 30px!important}
-  #app.rntx-premium main:before{inset:58px 0 0 158px!important;background-position:72% center!important}
-  #app.rntx-premium .rntx-welcome{min-height:55px!important;margin-bottom:11px!important}
-  #app.rntx-premium .rntx-crown{font-size:22px!important}
-  #app.rntx-premium .rntx-welcome h2{font-size:16px!important}
-  #app.rntx-premium .rntx-welcome p{font-size:8px!important}
-  #app.rntx-premium .rntx-date{display:none!important}
-  #app.rntx-premium .rntx-kpis{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px!important}
-  #app.rntx-premium .rntx-kpi{min-height:116px!important;padding:11px!important;border-radius:12px!important}
-  #app.rntx-premium .rntx-kpi-icon{width:30px!important;height:30px!important;font-size:14px!important;margin-bottom:8px!important}
-  #app.rntx-premium .rntx-kpi label{font-size:8px!important}
-  #app.rntx-premium .rntx-kpi strong{font-size:20px!important;margin:4px 0!important}
-  #app.rntx-premium .rntx-kpi em{font-size:7px!important}
-  #app.rntx-premium .rntx-main-grid,#app.rntx-premium .rntx-bottom-grid{grid-template-columns:minmax(0,1.55fr) minmax(0,.85fr)!important;gap:8px!important}
-  #app.rntx-premium .rntx-panel-head{padding:10px 10px 7px!important}
-  #app.rntx-premium .rntx-panel-title{font-size:9px!important}
-  #app.rntx-premium .rntx-panel-title .mini{width:22px!important;height:22px!important;font-size:11px!important}
-  #app.rntx-premium .rntx-chart{height:145px!important;padding:0 8px 8px!important}
-  #app.rntx-premium .rntx-select{font-size:7px!important;padding:6px 6px!important}
-  #app.rntx-premium .rntx-action{margin:4px 6px!important;padding:7px!important;font-size:7px!important;gap:6px!important}
-  #app.rntx-premium .rntx-action .aicon{width:22px!important;height:22px!important;font-size:10px!important}
-  #app.rntx-premium .rntx-action span:last-child{font-size:12px!important}
-  #app.rntx-premium .rntx-activity-row,#app.rntx-premium .rntx-status-row{padding:6px 7px!important;gap:6px!important}
-  #app.rntx-premium .rntx-activity-icon,#app.rntx-premium .rntx-status-icon{width:22px!important;height:22px!important;font-size:9px!important}
-  #app.rntx-premium .rntx-activity-copy b,#app.rntx-premium .rntx-status-copy{font-size:7px!important}
-  #app.rntx-premium .rntx-activity-copy small,#app.rntx-premium .rntx-time,#app.rntx-premium .rntx-online{font-size:6px!important}
-  #app.rntx-premium .rntx-status-badge{padding:4px 6px!important;font-size:7px!important}
-}
-@media(max-width:480px){
-  #app.rntx-premium header .rntx-brand-sub{display:none!important}
-  #app.rntx-premium .rntx-top-search{display:none!important}
-  #app.rntx-premium nav{width:145px!important}
-  #app.rntx-premium main{margin-left:145px!important}
-  #app.rntx-premium main:before{inset:58px 0 0 145px!important}
-  #app.rntx-premium .rntx-main-grid,#app.rntx-premium .rntx-bottom-grid{grid-template-columns:1fr!important}
+#app.rntx-premium .rntx-logo{display:inline-block!important;font-size:30px!important;font-weight:950!important;letter-spacing:-2px!important;color:#b35cff!important;text-shadow:0 0 20px rgba(179,92,255,.65)!important}
+#app.rntx-premium .rntx-brand-sub{font-size:14px!important;font-weight:800!important;color:#e2e0ee!important;letter-spacing:.6px!important}
+#app.rntx-premium .rntx-top-search{flex:0 0 420px!important;width:420px!important;max-width:420px!important}
+#app.rntx-premium .rntx-top-search input{height:42px!important;margin:0!important;padding:11px 16px 11px 43px!important}
+#app.rntx-premium .rntx-top-actions{margin-left:auto!important;gap:19px!important}
+#app.rntx-premium .rntx-icon{font-size:20px!important}
+#app.rntx-premium nav{top:72px!important;left:0!important;width:260px!important;height:calc(100vh - 72px)!important;padding:18px 16px!important;box-sizing:border-box!important}
+#app.rntx-premium nav button{min-height:46px!important;margin:4px 0!important;padding:12px 16px!important;border-radius:11px!important;font-size:14px!important}
+#app.rntx-premium main{margin-left:260px!important;width:890px!important;max-width:890px!important;padding:28px 0 48px 26px!important;box-sizing:content-box!important}
+#app.rntx-premium main:before{inset:72px 0 0 260px!important;background-position:center right!important;background-size:cover!important;opacity:.92!important}
+#app.rntx-premium .rntx-welcome{width:890px!important;min-height:68px!important;margin-bottom:22px!important}
+#app.rntx-premium .rntx-welcome h2{font-size:27px!important}
+#app.rntx-premium .rntx-welcome p{font-size:12px!important}
+#app.rntx-premium .rntx-date{display:flex!important;font-size:11px!important;gap:22px!important}
+#app.rntx-premium .rntx-kpis{width:890px!important;grid-template-columns:repeat(4,1fr)!important;gap:20px!important;margin-bottom:20px!important}
+#app.rntx-premium .rntx-kpi{width:auto!important;min-height:188px!important;padding:19px!important;border-radius:16px!important}
+#app.rntx-premium .rntx-kpi-icon{width:43px!important;height:43px!important;font-size:20px!important;margin-bottom:14px!important}
+#app.rntx-premium .rntx-kpi label{font-size:12px!important}
+#app.rntx-premium .rntx-kpi strong{font-size:29px!important;margin:7px 0!important}
+#app.rntx-premium .rntx-kpi em{font-size:10px!important}
+#app.rntx-premium .rntx-main-grid,#app.rntx-premium .rntx-bottom-grid{width:890px!important;grid-template-columns:560px 310px!important;gap:20px!important}
+#app.rntx-premium .rntx-bottom-grid{margin-top:20px!important}
+#app.rntx-premium .rntx-panel{width:auto!important;border-radius:16px!important}
+#app.rntx-premium .rntx-panel-head{padding:17px 18px 12px!important}
+#app.rntx-premium .rntx-panel-title{font-size:15px!important}
+#app.rntx-premium .rntx-panel-title .mini{width:30px!important;height:30px!important}
+#app.rntx-premium .rntx-chart{height:240px!important;padding:0 18px 18px!important}
+#app.rntx-premium .rntx-action{margin:7px 12px!important;padding:11px 12px!important;font-size:11px!important}
+#app.rntx-premium .rntx-action .aicon{width:33px!important;height:33px!important}
+#app.rntx-premium .rntx-activity-row,#app.rntx-premium .rntx-status-row{padding:10px 17px!important}
+#app.rntx-premium .rntx-activity-icon,#app.rntx-premium .rntx-status-icon{width:33px!important;height:33px!important}
+#app.rntx-premium .rntx-activity-copy b{font-size:11px!important}
+#app.rntx-premium .rntx-activity-copy small,#app.rntx-premium .rntx-time,#app.rntx-premium .rntx-online{font-size:9px!important}
+#app.rntx-premium .rntx-status-copy{font-size:11px!important}
+#app.rntx-premium .rntx-status-badge{font-size:9px!important;padding:6px 9px!important}
+
+/* On phones, scale the complete 1536px reference canvas instead of changing its layout. */
+@media(max-width:1535px){
+  html,body{overflow-x:hidden!important}
+  #app.rntx-premium{transform-origin:top left!important;transform:scale(var(--rntx-reference-scale,1))!important}
 }
