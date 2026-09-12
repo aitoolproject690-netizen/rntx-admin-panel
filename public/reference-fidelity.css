@@ -1,0 +1,65 @@
+/* RNTX reference-fidelity layer: preserves the supplied dashboard composition while making it behave cleanly on phones. */
+#app.rntx-premium header .brand{min-width:300px!important}
+#app.rntx-premium header .brand:before{content:none!important;display:none!important}
+#app.rntx-premium header .rntx-logo{display:inline-block!important}
+#app.rntx-premium main{padding-top:30px!important}
+#app.rntx-premium .rntx-welcome{min-height:68px;align-items:center}
+#app.rntx-premium .rntx-kpis{grid-template-columns:repeat(4,minmax(0,1fr))!important}
+#app.rntx-premium .rntx-main-grid,#app.rntx-premium .rntx-bottom-grid{grid-template-columns:minmax(0,1.55fr) minmax(285px,.85fr)!important}
+#app.rntx-premium .rntx-kpi{min-height:188px!important}
+#app.rntx-premium .rntx-panel{min-height:0}
+@media(max-width:1100px){
+  #app.rntx-premium .brand{min-width:250px!important}
+  #app.rntx-premium .rntx-kpi{min-height:150px!important}
+}
+@media(max-width:700px){
+  #app.rntx-premium header{height:58px!important;padding:0 12px!important}
+  #app.rntx-premium header .brand{min-width:150px!important;gap:7px!important}
+  #app.rntx-premium .rntx-logo{font-size:21px!important;letter-spacing:-1.5px!important}
+  #app.rntx-premium .rntx-brand-sub{font-size:9px!important;letter-spacing:.2px!important}
+  #app.rntx-premium .rntx-top-search{display:block!important;max-width:none!important;flex:1!important}
+  #app.rntx-premium .rntx-top-search input{height:34px!important;padding:8px 8px 8px 30px!important;font-size:9px!important}
+  #app.rntx-premium .rntx-top-search:before{left:9px!important;top:4px!important;font-size:15px!important}
+  #app.rntx-premium .rntx-top-actions{gap:6px!important}
+  #app.rntx-premium .rntx-top-actions .rntx-icon{display:none!important}
+  #app.rntx-premium .rntx-profile div{display:none!important}
+  #app.rntx-premium .rntx-chevron{display:none!important}
+  #app.rntx-premium .rntx-avatar{width:29px!important;height:29px!important}
+  #app.rntx-premium nav{top:58px!important;width:158px!important;height:calc(100vh - 58px)!important;padding:16px 9px!important}
+  #app.rntx-premium nav button{min-height:39px!important;padding:9px 9px!important;font-size:9px!important;margin:3px 0!important;border-radius:9px!important}
+  #app.rntx-premium main{margin-left:158px!important;padding:16px 9px 30px!important}
+  #app.rntx-premium main:before{inset:58px 0 0 158px!important;background-position:72% center!important}
+  #app.rntx-premium .rntx-welcome{min-height:55px!important;margin-bottom:11px!important}
+  #app.rntx-premium .rntx-crown{font-size:22px!important}
+  #app.rntx-premium .rntx-welcome h2{font-size:16px!important}
+  #app.rntx-premium .rntx-welcome p{font-size:8px!important}
+  #app.rntx-premium .rntx-date{display:none!important}
+  #app.rntx-premium .rntx-kpis{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px!important}
+  #app.rntx-premium .rntx-kpi{min-height:116px!important;padding:11px!important;border-radius:12px!important}
+  #app.rntx-premium .rntx-kpi-icon{width:30px!important;height:30px!important;font-size:14px!important;margin-bottom:8px!important}
+  #app.rntx-premium .rntx-kpi label{font-size:8px!important}
+  #app.rntx-premium .rntx-kpi strong{font-size:20px!important;margin:4px 0!important}
+  #app.rntx-premium .rntx-kpi em{font-size:7px!important}
+  #app.rntx-premium .rntx-main-grid,#app.rntx-premium .rntx-bottom-grid{grid-template-columns:minmax(0,1.55fr) minmax(0,.85fr)!important;gap:8px!important}
+  #app.rntx-premium .rntx-panel-head{padding:10px 10px 7px!important}
+  #app.rntx-premium .rntx-panel-title{font-size:9px!important}
+  #app.rntx-premium .rntx-panel-title .mini{width:22px!important;height:22px!important;font-size:11px!important}
+  #app.rntx-premium .rntx-chart{height:145px!important;padding:0 8px 8px!important}
+  #app.rntx-premium .rntx-select{font-size:7px!important;padding:6px 6px!important}
+  #app.rntx-premium .rntx-action{margin:4px 6px!important;padding:7px!important;font-size:7px!important;gap:6px!important}
+  #app.rntx-premium .rntx-action .aicon{width:22px!important;height:22px!important;font-size:10px!important}
+  #app.rntx-premium .rntx-action span:last-child{font-size:12px!important}
+  #app.rntx-premium .rntx-activity-row,#app.rntx-premium .rntx-status-row{padding:6px 7px!important;gap:6px!important}
+  #app.rntx-premium .rntx-activity-icon,#app.rntx-premium .rntx-status-icon{width:22px!important;height:22px!important;font-size:9px!important}
+  #app.rntx-premium .rntx-activity-copy b,#app.rntx-premium .rntx-status-copy{font-size:7px!important}
+  #app.rntx-premium .rntx-activity-copy small,#app.rntx-premium .rntx-time,#app.rntx-premium .rntx-online{font-size:6px!important}
+  #app.rntx-premium .rntx-status-badge{padding:4px 6px!important;font-size:7px!important}
+}
+@media(max-width:480px){
+  #app.rntx-premium header .rntx-brand-sub{display:none!important}
+  #app.rntx-premium .rntx-top-search{display:none!important}
+  #app.rntx-premium nav{width:145px!important}
+  #app.rntx-premium main{margin-left:145px!important}
+  #app.rntx-premium main:before{inset:58px 0 0 145px!important}
+  #app.rntx-premium .rntx-main-grid,#app.rntx-premium .rntx-bottom-grid{grid-template-columns:1fr!important}
+}
