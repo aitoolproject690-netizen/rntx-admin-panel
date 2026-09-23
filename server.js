@@ -167,6 +167,20 @@ const defaultSettings = {
 };
 const upsertSetting = db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)");
 for (const [key, value] of Object.entries(defaultSettings)) upsertSetting.run(key, value);
+if (process.env.DEFAULT_CUSTOMER_PANEL_URL && process.env.OWNER_CONTROL_SECRET) {
+  const existingPanel = db.prepare("SELECT id FROM customer_panels WHERE panel_url=? LIMIT 1").get(String(process.env.DEFAULT_CUSTOMER_PANEL_URL).trim().replace(/\/$/,""));
+  if (!existingPanel) {
+    const expiry = new Date(Date.now() + 30*24*60*60*1000).toISOString();
+    db.prepare(`INSERT INTO customer_panels(panel_name,panel_url,owner_username,panel_expires_at,active,control_secret,updated_at)
+      VALUES(?,?,?,?,1,?,CURRENT_TIMESTAMP)`).run(
+      "DANGER CUSTOMER PANEL",
+      String(process.env.DEFAULT_CUSTOMER_PANEL_URL).trim().replace(/\/$/,""),
+      String(process.env.DEFAULT_CUSTOMER_USERNAME || "dangerowner").trim().slice(0,100),
+      expiry,
+      String(process.env.OWNER_CONTROL_SECRET).trim()
+    );
+  }
+}
 
 
 const defaultPlans = [
