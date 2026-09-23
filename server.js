@@ -145,6 +145,17 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS customer_panels (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  panel_name TEXT NOT NULL,
+  panel_url TEXT NOT NULL,
+  owner_username TEXT NOT NULL DEFAULT '',
+  panel_expires_at TEXT,
+  active INTEGER NOT NULL DEFAULT 1,
+  control_secret TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 `);
 ensureColumn("orders", "device_limit", "INTEGER NOT NULL DEFAULT 1");
 ensureColumn("transactions", "performed_by", "INTEGER");
@@ -713,4 +724,87 @@ app.get("/api/referrals",auth,(req,res)=>{
     FROM users u WHERE u.parent_id=? ORDER BY u.id DESC`).all(id));
 });
 
+
+function ownerRemote(panel, action, payload={}){
+  const base=String(panel.panel_url||"").replace(/\/$/,"");
+  if(!base) return Promise.reject(new Error("Customer panel URL is missing"));
+  return fetch(base+"/api/owner/control",{
+    method:"POST",
+    headers:{"Content-Type":"application/json","X-Owner-Control-Secret":panel.control_secret},
+    body:JSON.stringify({action,...payload})
+  }).then(async response=>{
+    let data={}; try{data=await response.json()}catch{}
+    if(!response.ok) throw new Error(data.error||`Customer panel control failed (${response.status})`);
+    return data;
+  });
+}
+app.get("/owner",adminOnly,(req,res)=>res.sendFile(path.join(__dirname,"public","owner.html")));
+app.get("/api/owner/panels",adminOnly,(req,res)=>{
+  res.json(db.prepare("SELECT id,panel_name,panel_url,owner_username,panel_expires_at,active,created_at,updated_at FROM customer_panels ORDER BY id DESC").all());
+});
+app.post("/api/owner/panels",adminOnly,(req,res)=>{
+  const panelName=String(req.body?.panelName||"").trim().slice(0,100);
+  const panelUrl=String(req.body?.panelUrl||"").trim().replace(/\/$/,"");
+  const ownerUsername=String(req.body?.ownerUsername||"").trim().slice(0,100);
+  const days=Number(req.body?.days);
+  const controlSecret=String(req.body?.controlSecret||"").trim();
+  if(panelName.length<2) return res.status(400).json({error:"Panel name is required"});
+  if(!/^https?:\/\//i.test(panelUrl)) return res.status(400).json({error:"Panel URL must start with http:// or https://"});
+  if(!Number.isInteger(days)||days<1||days>3650) return res.status(400).json({error:"Validity must be 1-3650 days"});
+  if(controlSecret.length<32) return res.status(400).json({error:"Control secret must be at least 32 characters"});
+  const expiry=new Date(Date.now()+days*86400000).toISOString();
+  try{
+    const info=db.prepare(`INSERT INTO customer_panels(panel_name,panel_url,owner_username,panel_expires_at,active,control_secret,updated_at)
+      VALUES(?,?,?,?,1,?,CURRENT_TIMESTAMP)`).run(panelName,panelUrl,ownerUsername,expiry,controlSecret);
+    recordAudit(req,"CUSTOMER_PANEL_CREATED",{panelId:info.lastInsertRowid,panelName,panelUrl,days});
+    res.json({ok:true,id:info.lastInsertRowid,panel_expires_at:expiry});
+  }catch(e){res.status(400).json({error:"Could not create customer panel record"});}
+});
+app.post("/api/owner/panels/:id/control",adminOnly,async(req,res)=>{
+  const panel=db.prepare("SELECT * FROM customer_panels WHERE id=?").get(req.params.id);
+  if(!panel) return res.status(404).json({error:"Customer panel not found"});
+  const action=String(req.body?.action||"").trim().toLowerCase();
+  try{
+    if(action==="block"||action==="unblock"){
+      await ownerRemote(panel,action);
+      const active=action==="unblock"?1:0;
+      db.prepare("UPDATE customer_panels SET active=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").run(active,panel.id);
+      recordAudit(req,"CUSTOMER_PANEL_STATUS_CHANGED",{panelId:panel.id,action});
+      return res.json({ok:true,active});
+    }
+    if(action==="extend"){
+      const days=Number(req.body?.days);
+      if(!Number.isInteger(days)||days<1||days>3650) return res.status(400).json({error:"Validity extension must be 1-3650 days"});
+      const expiry=new Date(Date.now()+days*86400000).toISOString();
+      await ownerRemote(panel,"extend",{expiresAt:expiry});
+      db.prepare("UPDATE customer_panels SET panel_expires_at=?,active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?").run(expiry,panel.id);
+      recordAudit(req,"CUSTOMER_PANEL_EXTENDED",{panelId:panel.id,days,expiresAt:expiry});
+      return res.json({ok:true,panel_expires_at:expiry});
+    }
+    if(action==="reset_credentials"){
+      const username=String(req.body?.username||"").trim().slice(0,100);
+      const password=String(req.body?.password||"");
+      if(username.length<3||password.length<8) return res.status(400).json({error:"Username must be at least 3 chars and password 8+ chars"});
+      await ownerRemote(panel,"reset_credentials",{username,password});
+      db.prepare("UPDATE customer_panels SET owner_username=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").run(username,panel.id);
+      recordAudit(req,"CUSTOMER_PANEL_CREDENTIALS_RESET",{panelId:panel.id,username});
+      return res.json({ok:true,username});
+    }
+    if(action==="refresh"){
+      const data=await ownerRemote(panel,"status");
+      return res.json({ok:true,...data});
+    }
+    return res.status(400).json({error:"Unknown owner control action"});
+  }catch(e){
+    recordAudit(req,"CUSTOMER_PANEL_CONTROL_FAILED",{panelId:panel.id,action,reason:e.message});
+    return res.status(502).json({error:e.message||"Customer panel control failed"});
+  }
+});
+app.delete("/api/owner/panels/:id",adminOnly,(req,res)=>{
+  const panel=db.prepare("SELECT id,panel_name FROM customer_panels WHERE id=?").get(req.params.id);
+  if(!panel) return res.status(404).json({error:"Customer panel not found"});
+  db.prepare("DELETE FROM customer_panels WHERE id=?").run(panel.id);
+  recordAudit(req,"CUSTOMER_PANEL_RECORD_DELETED",{panelId:panel.id,panelName:panel.panel_name});
+  res.json({ok:true});
+});
 app.listen(PORT,"0.0.0.0",()=>console.log(`RNTX Admin Panel running on port ${PORT}`));
