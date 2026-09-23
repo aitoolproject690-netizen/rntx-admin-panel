@@ -804,6 +804,17 @@ app.post("/api/owner/panels/:id/control",adminOnly,async(req,res)=>{
       recordAudit(req,"CUSTOMER_PANEL_CREDENTIALS_RESET",{panelId:panel.id,username});
       return res.json({ok:true,username});
     }
+    if(action==="generate_key"){
+      const game=String(req.body?.game || "My APK").trim().slice(0,100) || "My APK";
+      const duration=String(req.body?.duration || "Lifetime").trim();
+      const maxDevices=Number(req.body?.maxDevices ?? 1);
+      const quantity=Number(req.body?.quantity ?? 1);
+      if(!Number.isInteger(maxDevices) || maxDevices<1 || maxDevices>2000) return res.status(400).json({error:"Device limit must be between 1 and 2000"});
+      if(!Number.isInteger(quantity) || quantity<1 || quantity>100) return res.status(400).json({error:"Quantity must be between 1 and 100"});
+      const data=await ownerRemote(panel,"generate_key",{game,duration,maxDevices,quantity});
+      recordAudit(req,"CUSTOMER_PANEL_KEYS_GENERATED",{panelId:panel.id,game,duration,maxDevices,quantity});
+      return res.json({ok:true,...data});
+    }
     if(action==="refresh"){
       const data=await ownerRemote(panel,"status");
       return res.json({ok:true,...data});
