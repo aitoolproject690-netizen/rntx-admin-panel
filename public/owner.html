@@ -12,13 +12,21 @@
 <label>Validity Days</label><input id="pdays" type="number" min="1" max="3650" value="30">
 <label>Control Secret (32+ chars)</label><input id="psecret" type="password" placeholder="Same secret must be set on customer panel">
 <button onclick="createPanel()">ADD CUSTOMER PANEL</button><div id="msg" class="copy-msg"></div></div>
+<div class="card formcard" style="max-width:760px"><h3>GENERATE CUSTOMER KEY</h3>
+<label>Customer Panel</label><select id="kgpanel"></select>
+<label>Game / APK Name</label><input id="kgame" value="My APK">
+<label>Duration</label><select id="kdur"><option>5 Hours</option><option>12 Hours</option><option>1 Day</option><option>7 Days</option><option>15 Days</option><option>1 Month</option><option>2 Months</option><option>Lifetime</option></select>
+<label>Maximum Devices</label><input id="kdev" type="number" min="1" max="2000" value="1">
+<label>Quantity</label><input id="kqty" type="number" min="1" max="100" value="1">
+<button onclick="generateCustomerKeys()">GENERATE KEY(S)</button><div id="keymsg" class="copy-msg"></div><pre id="keyout" style="white-space:pre-wrap"></pre></div>
 <div id="panels"></div></section></main></div>
 <script>
 const $=id=>document.getElementById(id);
 async function api(url,opt={}){const r=await fetch(url,{headers:{'Content-Type':'application/json'},...opt});let d={};try{d=await r.json()}catch{}if(!r.ok)throw Error(d.error||'Request failed');return d}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]||m))}
 function fmt(x){return x?new Date(x).toLocaleString():'—'}
-async function loadPanels(){try{const rows=await api('/api/owner/panels');$('panels').innerHTML=rows.map(p=>`
+let ownerPanelsCache=[];
+async function loadPanels(){try{const rows=await api('/api/owner/panels');ownerPanelsCache=rows;const sel=$('kgpanel');if(sel)sel.innerHTML=rows.map(p=>`<option value="${p.id}">${esc(p.panel_name)} — ${esc(p.panel_url)}</option>`).join('');$('panels').innerHTML=rows.map(p=>`
 <div class="card"><div class="row"><div><h3>${esc(p.panel_name)}</h3><div class="muted">${esc(p.panel_url)}</div></div><span class="pill ${p.active?'':'danger-pill'}">${p.active?'ACTIVE':'BLOCKED'}</span></div>
 <p>Admin: <b>${esc(p.owner_username||'—')}</b> · Expiry: <b>${fmt(p.panel_expires_at)}</b></p>
 <div class="row" style="flex-wrap:wrap">
@@ -26,6 +34,7 @@ async function loadPanels(){try{const rows=await api('/api/owner/panels');$('pan
 <button onclick="extendPanel(${p.id})">EXTEND</button><button onclick="resetCreds(${p.id})">RESET LOGIN</button>
 <button class="danger" onclick="removeRecord(${p.id})">REMOVE RECORD</button></div></div>`).join('')||'<div class="card">No customer panels registered yet.</div>'}catch(e){$('panels').innerHTML='<div class="card">'+esc(e.message)+'</div>'}}
 async function createPanel(){try{const d=await api('/api/owner/panels',{method:'POST',body:JSON.stringify({panelName:$('pn').value,panelUrl:$('pu').value,ownerUsername:$('puser').value,days:Number($('pdays').value),controlSecret:$('psecret').value})});$('msg').textContent='Customer panel registered. ID: '+d.id;loadPanels()}catch(e){$('msg').textContent=e.message}}
+async function generateCustomerKeys(){const id=Number($('kgpanel').value);const p=ownerPanelsCache.find(x=>x.id===id);if(!p)return;$('keymsg').textContent='Generating...';try{const d=await api('/api/owner/panels/'+id+'/control',{method:'POST',body:JSON.stringify({action:'generate_key',game:$('kgame').value,duration:$('kdur').value,maxDevices:Number($('kdev').value),quantity:Number($('kqty').value)})});$('keyout').textContent=d.keys.map(x=>x.key).join('\n');$('keymsg').textContent='Generated '+d.keys.length+' key(s) for '+p.panel_name;}catch(e){$('keymsg').textContent=e.message;$('keyout').textContent='';}}
 async function control(id,action){if(!confirm(action.toUpperCase()+' this customer panel?'))return;try{await api('/api/owner/panels/'+id+'/control',{method:'POST',body:JSON.stringify({action})});loadPanels()}catch(e){alert(e.message)}}
 async function extendPanel(id){const days=prompt('Kitne din extend karna hai?','30');if(days===null)return;try{await api('/api/owner/panels/'+id+'/control',{method:'POST',body:JSON.stringify({action:'extend',days:Number(days)})});loadPanels()}catch(e){alert(e.message)}}
 async function resetCreds(id){const username=prompt('New customer username:');if(username===null)return;const password=prompt('New customer password (8+ chars):');if(password===null)return;try{await api('/api/owner/panels/'+id+'/control',{method:'POST',body:JSON.stringify({action:'reset_credentials',username,password})});loadPanels();alert('Customer login reset ho gaya.')}catch(e){alert(e.message)}}
