@@ -150,7 +150,7 @@ ensureColumn("orders", "device_limit", "INTEGER NOT NULL DEFAULT 1");
 ensureColumn("transactions", "performed_by", "INTEGER");
 ensureColumn("transactions", "performed_by_username", "TEXT");
 const defaultSettings = {
-  panel_name: "RNTX ADMIN PANEL",
+  panel_name: "DANGER ADMIN PANEL",
   default_game: "My APK",
   maintenance_mode: "0"
 };
