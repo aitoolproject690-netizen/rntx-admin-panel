@@ -156,6 +156,13 @@ CREATE TABLE IF NOT EXISTS customer_panels (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS reseller_branding (
+  user_id INTEGER PRIMARY KEY,
+  brand_name TEXT NOT NULL DEFAULT 'DANGER RESELLER',
+  logo_url TEXT NOT NULL DEFAULT '',
+  accent_color TEXT NOT NULL DEFAULT '#ff2447',
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 `);
 ensureColumn("orders", "device_limit", "INTEGER NOT NULL DEFAULT 1");
 ensureColumn("transactions", "performed_by", "INTEGER");
@@ -704,6 +711,26 @@ app.get("/api/transactions",auth,(req,res)=>{
   res.json(rows);
 });
 
+app.get("/api/reseller/branding",auth,(req,res)=>{
+  if(req.currentUser.role!=="reseller") return res.status(403).json({error:"Reseller only"});
+  const row=db.prepare("SELECT user_id,brand_name,logo_url,accent_color FROM reseller_branding WHERE user_id=?").get(req.currentUser.id);
+  res.json(row || {user_id:req.currentUser.id,brand_name:req.currentUser.username,logo_url:"",accent_color:"#ff2447"});
+});
+app.patch("/api/reseller/branding",auth,(req,res)=>{
+  if(req.currentUser.role!=="reseller") return res.status(403).json({error:"Reseller only"});
+  const brandName=String(req.body?.brandName||"").trim().slice(0,80);
+  const logoUrl=String(req.body?.logoUrl||"").trim().slice(0,500);
+  const accent=String(req.body?.accentColor||"#ff2447").trim();
+  if(brandName.length<2) return res.status(400).json({error:"Brand name must be at least 2 characters"});
+  if(logoUrl && !/^https?:\\/\\//i.test(logoUrl)) return res.status(400).json({error:"Logo URL must start with http:// or https://"});
+  if(!/^#[0-9a-fA-F]{6}$/.test(accent)) return res.status(400).json({error:"Accent color must be a 6-digit hex color"});
+  db.prepare(`INSERT INTO reseller_branding(user_id,brand_name,logo_url,accent_color,updated_at)
+    VALUES(?,?,?,?,CURRENT_TIMESTAMP)
+    ON CONFLICT(user_id) DO UPDATE SET brand_name=excluded.brand_name,logo_url=excluded.logo_url,accent_color=excluded.accent_color,updated_at=CURRENT_TIMESTAMP`)
+    .run(req.currentUser.id,brandName,logoUrl,accent);
+  recordAudit(req,"RESELLER_BRANDING_UPDATED",{brandName,logoUrl:Boolean(logoUrl),accentColor:accent});
+  res.json({ok:true,brand_name:brandName,logo_url:logoUrl,accent_color:accent});
+});
 app.get("/api/settings",adminOnly,(req,res)=>{
   const rows=db.prepare("SELECT key,value FROM settings ORDER BY key").all();
   res.json(Object.fromEntries(rows.map(x=>[x.key,x.value])));
