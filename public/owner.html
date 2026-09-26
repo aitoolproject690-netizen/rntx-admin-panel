@@ -2,7 +2,7 @@
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>DANGER OWNER CONTROL</title><link rel="stylesheet" href="/style.css">
 <style>
-.owner-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0}.owner-stat{padding:18px;border:1px solid rgba(255,60,60,.25);border-radius:14px;background:linear-gradient(145deg,#171717,#0d0d0d);box-shadow:0 8px 25px rgba(0,0,0,.25)}.owner-stat b{display:block;font-size:28px;color:#fff}.owner-stat span{color:#aaa;font-size:12px}.owner-tools{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}.owner-tools input,.owner-tools select{min-width:180px;flex:1}.key-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.reseller-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}.expired{color:#ff5252;font-weight:700}@media(max-width:800px){.owner-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.owner-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0}.owner-stat{padding:18px;border:1px solid rgba(255,60,60,.25);border-radius:14px;background:linear-gradient(145deg,#171717,#0d0d0d);box-shadow:0 8px 25px rgba(0,0,0,.25)}.owner-stat b{display:block;font-size:28px;color:#fff}.owner-stat span{color:#aaa;font-size:12px}.owner-tools{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}.owner-tools input,.owner-tools select{min-width:180px;flex:1}.key-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.reseller-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}.expired{color:#ff5252;font-weight:700}.health-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}.health-ok{color:#35e27b;font-weight:700}.health-bad{color:#ff5252;font-weight:700}.key-table{width:100%;border-collapse:collapse}.key-table th,.key-table td{padding:9px 7px;border-bottom:1px solid rgba(255,255,255,.08);text-align:left;font-size:13px}.key-table th{color:#aaa}.key-table td{color:#eee}.mini-actions{display:flex;gap:6px;flex-wrap:wrap}.mini-actions button{padding:7px 10px}@media(max-width:800px){.owner-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style></head>
 <body>
 <div id="app"><header><div class="brand">🛡️ <b>DANGER OWNER CONTROL</b></div><a href="/admin" style="color:#fff;text-decoration:none">MASTER ADMIN</a></header>
@@ -20,6 +20,23 @@
 <div class="card"><div class="row"><h3>RESELLER PANELS</h3><span class="muted">All reseller accounts created from Master Admin</span></div><div class="card owner-tools"><input id="resellerSearch" placeholder="🔎 Search reseller..." oninput="renderResellers()"><select id="resellerFilter" onchange="renderResellers()"><option value="all">All</option><option value="active">Active</option><option value="blocked">Blocked</option><option value="expired">Expired</option></select></div><div id="resellers" class="reseller-grid"></div></div>
 
 
+<div class="card">
+<div class="row"><h3>GLOBAL KEY MANAGER</h3><button onclick="loadGlobalKeys()">↻ REFRESH</button></div>
+<div class="card owner-tools">
+<input id="globalKeySearch" placeholder="🔎 Search key / APK / duration..." oninput="renderGlobalKeys()">
+<select id="globalKeyStatus" onchange="renderGlobalKeys()"><option value="all">All Status</option><option value="UNUSED">UNUSED</option><option value="ACTIVE">ACTIVE</option><option value="BLOCKED">BLOCKED</option></select>
+<select id="globalKeyOwner" onchange="renderGlobalKeys()"><option value="all">All Owners</option></select>
+</div>
+<div id="globalKeySummary" class="muted">Loading keys...</div>
+<div style="overflow:auto;margin-top:10px"><table class="key-table"><thead><tr><th>KEY</th><th>APK</th><th>OWNER</th><th>DURATION</th><th>DEVICES</th><th>STATUS</th><th>ACTION</th></tr></thead><tbody id="globalKeys"></tbody></table></div>
+</div>
+
+<div class="card">
+<div class="row"><h3>PANEL HEALTH MONITOR</h3><button onclick="loadHealth()">↻ CHECK ALL</button></div>
+<div id="healthSummary" class="muted">Checking customer panels...</div>
+<div id="healthPanels" class="health-grid" style="margin-top:12px"></div>
+</div>
+
 <div class="card"><div class="row"><h3>OWNER ACTIVITY</h3><button onclick="loadActivity()">↻ REFRESH</button></div>
 <div class="card"><h4>RECENT AUDIT LOGS</h4><div id="auditLogs">Loading...</div></div>
 <div class="card"><h4>RECENT TRANSACTIONS</h4><div id="ownerTransactions">Loading...</div></div></div>
@@ -31,7 +48,78 @@ function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&l
 function fmt(x){return x?new Date(x).toLocaleString():'—'}
 function expired(x){return !!x&&new Date(x)<=new Date()}
 function soon(x){if(!x)return false;const t=new Date(x).getTime()-Date.now();return t>0&&t<=7*86400000}
-let ownerPanelsCache=[],resellerCache=[];
+let ownerPanelsCache=[],resellerCache=[],globalKeysCache=[],healthCache=[];
+
+async function loadGlobalKeys(){
+ try{
+  const q=encodeURIComponent(($('globalKeySearch')?.value||'').trim());
+  globalKeysCache=await api('/api/keys?q='+q);
+  const owners=[...new Map(globalKeysCache.map(k=>[String(k.owner_id||0),k.owner||'Unknown'])).entries()];
+  const sel=$('globalKeyOwner');
+  if(sel){
+   const current=sel.value||'all';
+   sel.innerHTML='<option value="all">All Owners</option>'+owners.map(([id,name])=>'<option value="'+esc(id)+'">'+esc(name)+'</option>').join('');
+   if(owners.some(([id])=>id===current)) sel.value=current;
+  }
+  renderGlobalKeys();
+ }catch(e){
+  $('globalKeySummary').textContent=e.message;
+  $('globalKeys').innerHTML='<tr><td colspan="7">'+esc(e.message)+'</td></tr>';
+ }
+}
+function renderGlobalKeys(){
+ const q=($('globalKeySearch')?.value||'').toLowerCase().trim();
+ const st=$('globalKeyStatus')?.value||'all';
+ const own=$('globalKeyOwner')?.value||'all';
+ const rows=globalKeysCache.filter(k=>{
+  const text=(k.license_key+' '+k.game+' '+k.duration+' '+(k.owner||'')).toLowerCase();
+  if(q&&!text.includes(q))return false;
+  if(st!=='all'&&k.status!==st)return false;
+  if(own!=='all'&&String(k.owner_id||0)!==own)return false;
+  return true;
+ });
+ $('globalKeySummary').textContent=rows.length+' key(s) shown · '+globalKeysCache.length+' loaded';
+ $('globalKeys').innerHTML=rows.map(k=>{
+   const exp=k.expires_at?fmt(k.expires_at):'LIFETIME';
+   const status=k.status==='BLOCKED'?'<span class="health-bad">BLOCKED</span>':k.status==='ACTIVE'?'<span class="health-ok">ACTIVE</span>':'<span>UNUSED</span>';
+   const next=k.status==='BLOCKED'?'UNUSED':'BLOCKED';
+   return '<tr><td><b>'+esc(k.license_key)+'</b><br><span class="muted">'+esc(exp)+'</span></td><td>'+esc(k.game)+'</td><td>'+esc(k.owner||'Unknown')+'</td><td>'+esc(k.duration)+'</td><td>'+esc(k.devices_used)+' / '+esc(k.max_devices)+'</td><td>'+status+'</td><td><div class="mini-actions"><button onclick="toggleGlobalKey('+k.id+',\''+next+'\')">'+next+'</button><button class="danger" onclick="deleteGlobalKey('+k.id+')">DELETE</button></div></td></tr>';
+ }).join('')||'<tr><td colspan="7" class="muted">No keys found.</td></tr>';
+}
+async function toggleGlobalKey(id,status){
+ if(!confirm(status+' this key?'))return;
+ try{await api('/api/keys/'+id,{method:'PATCH',body:JSON.stringify({status})});await loadGlobalKeys()}catch(e){alert(e.message)}
+}
+async function deleteGlobalKey(id){
+ if(!confirm('DELETE this license key permanently?'))return;
+ try{await api('/api/keys/'+id,{method:'DELETE'});await loadGlobalKeys()}catch(e){alert(e.message)}
+}
+async function loadHealth(){
+ $('healthSummary').textContent='Checking customer panels...';
+ try{
+  const rows=await api('/api/owner/panels');
+  const results=await Promise.all(rows.map(async p=>{
+    const started=performance.now();
+    try{
+      const d=await api('/api/owner/panels/'+p.id+'/control',{method:'POST',body:JSON.stringify({action:'refresh'})});
+      return {...p,...d,latency:Math.round(performance.now()-started),reachable:true};
+    }catch(e){
+      return {...p,reachable:false,latency:Math.round(performance.now()-started),healthError:e.message};
+    }
+  }));
+  healthCache=results;
+  const online=results.filter(x=>x.reachable).length;
+  const blocked=results.filter(x=>x.reachable&&!x.active).length;
+  const expiredCount=results.filter(x=>x.reachable&&x.panel_expires_at&&expired(x.panel_expires_at)).length;
+  $('healthSummary').textContent=results.length+' panel(s) · '+online+' reachable · '+blocked+' blocked · '+expiredCount+' expired';
+  $('healthPanels').innerHTML=results.map(p=>{
+    const exp=p.panel_expires_at&&expired(p.panel_expires_at);
+    const cls=!p.reachable||!p.active||exp?'health-bad':'health-ok';
+    const state=!p.reachable?'OFFLINE':exp?'EXPIRED':!p.active?'BLOCKED':'ONLINE';
+    return '<div class="card"><div class="row"><h3>'+esc(p.panel_name)+'</h3><span class="'+cls+'">'+state+'</span></div><div class="muted">'+esc(p.panel_url)+'</div><p>Admin: <b>'+esc(p.username||p.owner_username||'—')+'</b><br>Expiry: <b>'+fmt(p.panel_expires_at)+'</b><br>Response: <b>'+esc(p.latency)+' ms</b></p>'+(p.healthError?'<div class="expired">'+esc(p.healthError)+'</div>':'')+'</div>';
+  }).join('')||'<div class="card">No customer panels registered.</div>';
+ }catch(e){$('healthSummary').textContent=e.message;$('healthPanels').innerHTML=''}
+}
 function renderStats(){const r=ownerPanelsCache;$('statTotal').textContent=r.length;$('statActive').textContent=r.filter(p=>p.active).length;$('statBlocked').textContent=r.filter(p=>!p.active).length;$('statSoon').textContent=r.filter(p=>p.active&&soon(p.panel_expires_at)).length}
 function renderPanels(){const q=($('panelSearch').value||'').toLowerCase().trim(),f=$('panelFilter').value;const rows=ownerPanelsCache.filter(p=>{const t=(p.panel_name+' '+p.panel_url+' '+(p.owner_username||'')).toLowerCase();if(q&&!t.includes(q))return false;if(f==='active'&&!p.active)return false;if(f==='blocked'&&p.active)return false;if(f==='soon'&&!(p.active&&soon(p.panel_expires_at)))return false;return true});$('panels').innerHTML=rows.map(p=>{const dl=p.panel_expires_at?Math.ceil((new Date(p.panel_expires_at)-Date.now())/86400000):0;return `<div class="card"><div class="row"><div><h3>${esc(p.panel_name)}</h3><div class="muted">${esc(p.panel_url)}</div></div><span class="pill ${p.active?'':'danger-pill'}">${p.active?'ACTIVE':'BLOCKED'}</span></div><p>Admin: <b>${esc(p.owner_username||'—')}</b> · Expiry: <b>${fmt(p.panel_expires_at)}</b> · Remaining: <b>${dl>0?dl+' days':'EXPIRED'}</b></p><div class="row" style="flex-wrap:wrap"><button onclick="control(${p.id},'block')">BLOCK</button><button onclick="control(${p.id},'unblock')">UNBLOCK</button><button onclick="quickExtend(${p.id},7)">+7D</button><button onclick="quickExtend(${p.id},30)">+30D</button><button onclick="quickExtend(${p.id},90)">+90D</button><button onclick="extendPanel(${p.id})">CUSTOM EXTEND</button><button onclick="resetCreds(${p.id})">RESET LOGIN</button><button class="danger" onclick="removeRecord(${p.id})">REMOVE RECORD</button></div></div>`}).join('')||'<div class="card">No matching customer panels.</div>'}
 function renderResellers(){const q=($('resellerSearch').value||'').toLowerCase().trim(),f=$('resellerFilter').value;const rows=resellerCache.filter(u=>{const ex=expired(u.panel_expires_at);const t=(u.username+' '+(u.referral_code||'')).toLowerCase();if(q&&!t.includes(q))return false;if(f==='active'&&(!u.active||ex))return false;if(f==='blocked'&&u.active)return false;if(f==='expired'&&!ex)return false;return true});$('resellers').innerHTML=rows.map(u=>{const ex=expired(u.panel_expires_at);const dl=u.panel_expires_at?Math.ceil((new Date(u.panel_expires_at)-Date.now())/86400000):null;return `<div class="card"><div class="row"><h3>${esc(u.username)}</h3><span class="pill ${u.active&&!ex?'':'danger-pill'}">${!u.active?'BLOCKED':ex?'EXPIRED':'ACTIVE'}</span></div><p>Panel: <b>/reseller</b><br>Expiry: <b>${fmt(u.panel_expires_at)}</b><br>Remaining: <b class="${ex?'expired':''}">${dl===null?'LIFETIME':dl>0?dl+' days':'EXPIRED'}</b><br>Balance: <b>₹${u.balance||0}</b></p><div class="row" style="flex-wrap:wrap"><button onclick="toggleReseller(${u.id},${u.active?0:1})">${u.active?'BLOCK':'UNBLOCK'}</button><button onclick="extendReseller(${u.id})">EXTEND</button><button onclick="editReseller(${u.id})">EDIT LOGIN</button><button class="danger" onclick="deleteReseller(${u.id},'${esc(u.username)}')">DELETE PANEL</button></div></div>`}).join('')||'<div class="card">No reseller panels found.</div>'}
@@ -51,7 +139,7 @@ async function toggleReseller(id,active){try{await api('/api/users/'+id,{method:
 async function extendReseller(id){const days=prompt('Kitne din ka expiry set karna hai? Blank = lifetime','30');if(days===null)return;try{await api('/api/users/'+id,{method:'PATCH',body:JSON.stringify({panelDays:days===''?null:Number(days)})});loadResellers()}catch(e){alert(e.message)}}
 async function editReseller(id){const u=resellerCache.find(x=>x.id===id);if(!u)return;const username=prompt('New username:',u.username);if(username===null)return;const password=prompt('New password (8+ chars):');if(password===null)return;try{await api('/api/users/'+id,{method:'PATCH',body:JSON.stringify({username,password})});loadResellers();alert('Reseller login updated.')}catch(e){alert(e.message)}}
 async function deleteReseller(id,name){if(!confirm('DELETE '+name+' reseller panel? Is reseller ke keys, transactions aur account delete honge.'))return;try{await api('/api/users/'+id,{method:'DELETE'});loadResellers()}catch(e){alert(e.message)}}
-loadAll();loadActivity();
+loadAll();loadActivity();loadGlobalKeys();loadHealth();
 
 async function loadActivity(){
  try{
