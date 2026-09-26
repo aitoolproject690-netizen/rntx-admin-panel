@@ -696,6 +696,20 @@ app.patch("/api/users/:id/balance",adminOnly,(req,res)=>{
   } catch(e) { res.status(400).json({error:e.message||"Could not update balance"}); }
 });
 
+app.get("/api/reseller/sales-summary",auth,(req,res)=>{
+  if(req.currentUser.role!=="reseller") return res.status(403).json({error:"Reseller only"});
+  const id=req.currentUser.id;
+  const summary=db.prepare(`SELECT
+    COUNT(*) AS total_sales,
+    COALESCE(SUM(CASE WHEN type='LICENSE_DEBIT' THEN ABS(amount) ELSE 0 END),0) AS revenue,
+    COALESCE(SUM(CASE WHEN type='CREDIT' THEN amount ELSE 0 END),0) AS credits,
+    COALESCE(SUM(CASE WHEN type='LICENSE_DEBIT' THEN 1 ELSE 0 END),0) AS license_sales
+    FROM transactions WHERE user_id=?`).get(id);
+  const today=db.prepare(`SELECT COUNT(*) AS sales, COALESCE(SUM(ABS(amount)),0) AS revenue
+    FROM transactions WHERE user_id=? AND type='LICENSE_DEBIT' AND date(created_at)=date('now')`).get(id);
+  res.json({summary,today});
+});
+
 app.get("/api/transactions",auth,(req,res)=>{
   const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
   let rows;
