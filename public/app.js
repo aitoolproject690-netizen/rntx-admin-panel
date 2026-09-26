@@ -52,7 +52,7 @@ async function boot(){
       if(me.role!=="admin"&&PANEL!=="reseller"||me.role==="admin"&&PANEL!=="admin"){location.href=routeForRole(me.role);return}
       const brand=document.querySelector(".brand b"); if(brand&&window.rntxSettings.panel_name) brand.textContent=window.rntxSettings.panel_name;
       const game=$("game"); if(game&&window.rntxSettings.default_game) game.value=window.rntxSettings.default_game;
-      $("login").classList.add("hidden");$("app").classList.remove("hidden");applyRoleUI();if(me.role==="reseller")loadBranding();show("dashboard");
+      $("login").classList.add("hidden");$("app").classList.remove("hidden");applyRoleUI();if(me.role==="reseller")loadBranding();if(me.role==="admin")$("masterAnalytics").classList.remove("hidden");show("dashboard");
     }
   }catch(e){if(e.code)$("loginMsg").textContent=e.message}
 }
@@ -69,7 +69,7 @@ function show(id){
   if(id==="users"&&me?.role!=="admin")return;
   document.querySelectorAll(".page").forEach(x=>x.classList.add("hidden"));
   $(id).classList.remove("hidden");$("nav").classList.remove("navopen");
-  if(id==="dashboard")loadDash();
+  if(id==="dashboard"){loadDash();if(me?.role==="admin")loadMasterAnalytics();}
   if(id==="resellerSales")loadSalesSummary();
   if(id==="keys")loadKeys();
   if(id==="create")loadCreate();
@@ -80,6 +80,28 @@ function show(id){
   if(id==="audit"&&me?.role==="admin")loadAudit();
   if(id==="settings"&&me?.role==="admin")loadSettings();
   if(id==="branding"&&me?.role==="reseller")loadBranding();
+}
+async function loadMasterAnalytics(){
+  if(me?.role!=="admin")return;
+  try{
+    const d=await api("/api/master/analytics");
+    const money=d.money||{}, today=d.today||{}, keys=d.keys||{}, r=d.resellers||{}, p=d.panels||{};
+    $("masterMoneyStats").innerHTML=[
+      ["💰","₹"+Number(money.credits||0).toLocaleString("en-IN"),"Wallet Credits"],
+      ["🔑","₹"+Number(money.license_debits||0).toLocaleString("en-IN"),"License Debits"],
+      ["📅","₹"+Number(today.license_debits||0).toLocaleString("en-IN"),"Today License Debits"]
+    ].map(x=>`<div class="stat"><div>${x[0]}</div><b>${x[1]}</b><span>${x[2]}</span></div>`).join("");
+    $("masterPanelStats").innerHTML=[
+      ["🔑",keys.active||0,"Active Keys"],["⛔",keys.blocked||0,"Blocked Keys"],["👥",r.active||0,"Active Resellers"],
+      ["🏢",p.active||0,"Active Customer Panels"],["⚠️",p.blocked_or_expired||0,"Blocked / Expired Panels"],["📦",keys.total||0,"Total Keys"]
+    ].map(x=>`<div class="stat"><div>${x[0]}</div><b>${Number(x[1]).toLocaleString("en-IN")}</b><span>${x[2]}</span></div>`).join("");
+    const days=d.daily||[], max=Math.max(1,...days.map(x=>Number(x.sales||0)));
+    $("salesChart").innerHTML=days.map(x=>{
+      const h=Math.max(6,Math.round(Number(x.sales||0)/max*150));
+      return `<div class="bar-item"><div class="bar-value">₹${Number(x.sales||0).toLocaleString("en-IN")}</div><div class="bar" style="height:${h}px"></div><span>${esc(x.day?.slice(5)||"—")}</span></div>`;
+    }).join("")||"<p class=\"muted\">No sales data yet.</p>";
+    $("masterActivity").innerHTML=(d.audit||[]).map(x=>`<div class="activity-item"><b>${esc(x.event_type)}</b><span>${esc(x.username||"SYSTEM")} · ${formatDate(x.created_at)}</span></div>`).join("")||"<p class=\"muted\">No activity yet.</p>";
+  }catch(e){$("masterMoneyStats").innerHTML=`<p class="muted">${esc(e.message)}</p>`}
 }
 async function loadDash(){
   const d=await api("/api/dashboard");
