@@ -2,7 +2,12 @@
   const $=id=>document.getElementById(id);
   async function api(url,opt={}){const r=await fetch(url,{headers:{'Content-Type':'application/json'},...opt});let d={};try{d=await r.json()}catch{}if(!r.ok)throw Error(d.error||'Request failed');return d}
   const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]||m));
+  function addStyle(){
+    if(document.getElementById('mcStyle'))return;
+    const s=document.createElement('style');s.id='mcStyle';s.textContent='.mc-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:14px 0}.mc-card{min-height:210px}.mc-icon{font-size:32px;margin-bottom:6px}.mc-list>div{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.07)}.mc-list b{color:#fff}.mc-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.mc-status-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px}.mc-status-grid>div{padding:14px;border-radius:12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07)}.mc-status-grid span{display:block;color:#999;font-size:11px}.mc-status-grid b{display:block;margin-top:5px;font-size:18px}.mc-event{display:grid;grid-template-columns:1fr auto auto;gap:12px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.07)}.mc-event span,.mc-event small{color:#999;margin-left:8px}.mc-event time{color:#aaa;font-size:12px}@media(max-width:800px){.mc-grid{grid-template-columns:1fr}.mc-status-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.mc-event{grid-template-columns:1fr}}';document.head.appendChild(s);
+  }
   function inject(){
+    addStyle();
     const nav=document.getElementById('nav'), main=document.querySelector('main');
     if(!nav||!main||document.getElementById('masterCommand')) return;
     const btn=document.createElement('button');btn.className='admin-only';btn.textContent='🧠 MASTER CENTER';btn.onclick=()=>show('masterCommand');nav.insertBefore(btn,nav.querySelector('button[onclick*="logout"]'));
@@ -11,7 +16,7 @@
       '<div class="mc-grid">'+
       '<div class="card mc-card"><div class="mc-icon">🛡️</div><h3>SECURITY SNAPSHOT</h3><div id="mcSecurity" class="mc-list">Loading...</div></div>'+
       '<div class="card mc-card"><div class="mc-icon">💾</div><h3>BACKUP CENTER</h3><p class="muted">Export the current master data as a portable JSON backup.</p><button id="mcBackup">DOWNLOAD BACKUP</button><div id="mcBackupMsg" class="copy-msg"></div></div>'+
-      '<div class="card mc-card"><div class="mc-icon">⚡</div><h3>QUICK ACTIONS</h3><div class="mc-actions"><button onclick="location.href=\'/owner\'">👑 OWNER CONTROL</button><button onclick="show(\'users\')">👥 RESELLERS</button><button onclick="show(\'keys\')">🔑 ALL KEYS</button><button onclick="show(\'audit\')">🛡️ AUDIT LOGS</button><button onclick="show(\'transactions\')">💳 TRANSACTIONS</button></div></div>'+
+      '<div class="card mc-card"><div class="mc-icon">⚡</div><h3>QUICK ACTIONS</h3><div class="mc-actions"><button onclick="location.href='/owner'">👑 OWNER CONTROL</button><button onclick="show('users')">👥 RESELLERS</button><button onclick="show('keys')">🔑 ALL KEYS</button><button onclick="show('audit')">🛡️ AUDIT LOGS</button><button onclick="show('transactions')">💳 TRANSACTIONS</button></div></div>'+
       '</div>'+
       '<div class="card"><div class="row"><h3>🚦 SYSTEM STATUS</h3><span id="mcStatus" class="health-ok">READY</span></div><div id="mcStatusGrid" class="mc-status-grid"></div></div>'+
       '<div class="card"><div class="row"><h3>🧾 RECENT SECURITY EVENTS</h3><button class="small" id="mcAuditRefresh">↻ REFRESH</button></div><div id="mcEvents" class="mc-events">Loading...</div></div>';
@@ -32,8 +37,7 @@
       $('mcSecurity').innerHTML='<div>Active resellers <b>'+activeRes+'</b></div><div>Blocked resellers <b>'+blockedRes+'</b></div><div>Active customer panels <b>'+activePanels+'</b></div><div>Blocked panels <b>'+blockedPanels+'</b></div><div>Audit events / 24h <b>'+recent.length+'</b></div><div>Unique IPs / 24h <b>'+ips.size+'</b></div>';
       $('mcStatusGrid').innerHTML='<div><span>Keys</span><b>'+esc(a.keys?.total??0)+'</b></div><div><span>Resellers</span><b>'+esc(a.resellers?.total??0)+'</b></div><div><span>Customer Panels</span><b>'+esc(a.panels?.total??0)+'</b></div><div><span>Wallet Credits</span><b>₹'+esc(a.money?.credits??0)+'</b></div><div><span>License Debits</span><b>₹'+esc(a.money?.license_debits??0)+'</b></div><div><span>Today Debits</span><b>₹'+esc(a.today?.license_debits??0)+'</b></div>';
       renderEvents(logs.slice(0,12));
-      status.textContent='ONLINE · '+new Date().toLocaleTimeString();
-      status.className='health-ok';
+      status.textContent='ONLINE · '+new Date().toLocaleTimeString();status.className='health-ok';
     }catch(e){status.textContent='ERROR';status.className='health-bad';$('mcSecurity').textContent=e.message}
   }
   async function loadAudit(){try{const logs=await api('/api/audit-logs?limit=80');renderEvents(logs.slice(0,12))}catch(e){$('mcEvents').textContent=e.message}}
@@ -41,9 +45,7 @@
   async function downloadBackup(){
     const msg=$('mcBackupMsg');msg.textContent='Collecting data...';
     try{
-      const [analytics,users,panels,keys,transactions,audit]=await Promise.all([
-        api('/api/master/analytics'),api('/api/users'),api('/api/owner/panels'),api('/api/keys?limit=500'),api('/api/transactions?limit=500'),api('/api/audit-logs?limit=500')
-      ]);
+      const [analytics,users,panels,keys,transactions,audit]=await Promise.all([api('/api/master/analytics'),api('/api/users'),api('/api/owner/panels'),api('/api/keys?limit=500'),api('/api/transactions?limit=500'),api('/api/audit-logs?limit=500')]);
       const payload={backup_type:'DANGER_MASTER_PANEL_JSON',version:1,created_at:new Date().toISOString(),analytics,users,customer_panels:panels,keys,transactions,audit_logs:audit};
       const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
       const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='danger-master-backup-'+new Date().toISOString().replace(/[:.]/g,'-')+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
