@@ -363,6 +363,20 @@ app.get("/", (req,res) => {
 });
 app.use(express.static(path.join(__dirname, "public")));
 
+
+// Master analytics
+app.get("/api/master/analytics",adminOnly,(req,res)=>{
+  const keys=db.prepare("SELECT COUNT(*) total, SUM(CASE WHEN status='ACTIVE' THEN 1 ELSE 0 END) active, SUM(CASE WHEN status='UNUSED' THEN 1 ELSE 0 END) unused, SUM(CASE WHEN status='BLOCKED' THEN 1 ELSE 0 END) blocked FROM keys").get();
+  const resellers=db.prepare("SELECT COUNT(*) total, SUM(CASE WHEN active=1 THEN 1 ELSE 0 END) active, SUM(CASE WHEN active=0 THEN 1 ELSE 0 END) blocked FROM users WHERE role='reseller'").get();
+  const panels=db.prepare("SELECT COUNT(*) total, SUM(CASE WHEN active=1 AND (panel_expires_at IS NULL OR panel_expires_at>datetime('now')) THEN 1 ELSE 0 END) active, SUM(CASE WHEN active=0 OR (panel_expires_at IS NOT NULL AND panel_expires_at<=datetime('now')) THEN 1 ELSE 0 END) blocked_or_expired FROM customer_panels").get();
+  const money=db.prepare("SELECT COALESCE(SUM(CASE WHEN type='CREDIT' THEN amount ELSE 0 END),0) credits, COALESCE(SUM(CASE WHEN type='LICENSE_DEBIT' THEN ABS(amount) ELSE 0 END),0) license_debits FROM transactions").get();
+  const today=db.prepare("SELECT COALESCE(SUM(CASE WHEN type='CREDIT' THEN amount ELSE 0 END),0) credits, COALESCE(SUM(CASE WHEN type='LICENSE_DEBIT' THEN ABS(amount) ELSE 0 END),0) license_debits FROM transactions WHERE date(created_at)=date('now')").get();
+  const daily=db.prepare(`SELECT date(created_at) day, COALESCE(SUM(CASE WHEN type='LICENSE_DEBIT' THEN ABS(amount) ELSE 0 END),0) sales, COUNT(CASE WHEN type='LICENSE_DEBIT' THEN 1 END) license_sales
+    FROM transactions WHERE created_at>=datetime('now','-6 days') GROUP BY date(created_at) ORDER BY day ASC`).all();
+  const audit=db.prepare(`SELECT event_type,username,metadata,created_at FROM audit_logs ORDER BY id DESC LIMIT 8`).all();
+  res.json({keys,resellers,panels,money,today,daily,audit});
+});
+
 // Dashboard
 app.get("/api/dashboard",auth,(req,res)=>{
   const ownerFilter = req.currentUser.role === "reseller" ? " WHERE owner_id=?" : "";
