@@ -9,6 +9,16 @@
 <main style="margin-left:0;max-width:1250px;margin:auto;padding:28px"><section class="page">
 <div class="row"><h2>OWNER CONTROL</h2><button onclick="loadAll()">↻ REFRESH</button></div>
 <div class="owner-grid"><div class="owner-stat"><span>TOTAL CUSTOMERS</span><b id="statTotal">0</b></div><div class="owner-stat"><span>ACTIVE</span><b id="statActive">0</b></div><div class="owner-stat"><span>BLOCKED</span><b id="statBlocked">0</b></div><div class="owner-stat"><span>EXPIRING SOON</span><b id="statSoon">0</b></div></div>
+<div class="card" style="border-color:rgba(255,36,71,.45);background:linear-gradient(145deg,rgba(58,8,18,.75),rgba(13,16,28,.95))">
+<div class="row"><div><h3>⚡ GLOBAL CONTROL CENTER</h3><div class="muted">Emergency controls for every reseller and customer panel. Each bulk action asks for confirmation.</div></div><span id="globalControlMsg" class="copy-msg"></span></div>
+<div class="owner-tools">
+<button onclick="bulkReseller(0)">🚫 BLOCK ALL RESELLERS</button>
+<button onclick="bulkReseller(1)">✅ UNBLOCK ALL RESELLERS</button>
+<button onclick="bulkCustomers('block')">🛑 BLOCK ALL CUSTOMER PANELS</button>
+<button onclick="bulkCustomers('unblock')">🟢 UNBLOCK ALL CUSTOMER PANELS</button>
+<button class="copy-button" onclick="loadAll();loadHealth();loadGlobalKeys()">↻ SYNC EVERYTHING</button>
+</div></div>
+
 <div class="card owner-tools"><input id="panelSearch" placeholder="🔎 Search customer panel..." oninput="renderPanels()"><select id="panelFilter" onchange="renderPanels()"><option value="all">All Panels</option><option value="active">Active</option><option value="blocked">Blocked</option><option value="soon">Expiring Soon</option></select></div>
 
 <div class="card formcard" style="max-width:760px"><h3>ADD CUSTOMER PANEL</h3>
@@ -149,5 +159,18 @@ async function loadActivity(){
  }catch(e){
   $('auditLogs').textContent=e.message;$('ownerTransactions').textContent=e.message;
  }
+}
+
+async function bulkReseller(active){
+ const action=active?'UNBLOCK':'BLOCK';
+ if(!confirm(action+' ALL reseller panels? This changes every reseller account.'))return;
+ const msg=$('globalControlMsg'); msg.textContent=action+' all resellers...';
+ try{const rows=await api('/api/users');let changed=0;for(const u of rows){if(u.role==='reseller' && Boolean(u.active)!==Boolean(active)){await api('/api/users/'+u.id,{method:'PATCH',body:JSON.stringify({active})});changed++;}}msg.textContent=action+' complete · '+changed+' reseller(s) changed.';await loadResellers();}catch(e){msg.textContent=e.message}
+}
+async function bulkCustomers(action){
+ const label=action==='block'?'BLOCK':'UNBLOCK';
+ if(!confirm(label+' ALL customer panels? Every registered customer panel will be changed.'))return;
+ const msg=$('globalControlMsg');msg.textContent=label+' all customer panels...';
+ try{const rows=await api('/api/owner/panels');let changed=0;for(const p of rows){if((action==='block'&&p.active)||(action==='unblock'&&!p.active)){await api('/api/owner/panels/'+p.id+'/control',{method:'POST',body:JSON.stringify({action})});changed++;}}msg.textContent=label+' complete · '+changed+' customer panel(s) changed.';await loadPanels();await loadHealth();}catch(e){msg.textContent=e.message}
 }
 </script></body></html>
