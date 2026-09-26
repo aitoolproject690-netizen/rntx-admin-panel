@@ -2,6 +2,7 @@ let me=null;
 let pricingTiers=[];
 let userCache=new Map();
 let balanceUserId=null;
+let latestReceipt="";
 const PANEL=location.pathname.startsWith("/reseller")?"reseller":"admin";
 const DEVICE_LIMITS=[1,10,100,500,1000,2000];
 const $=id=>document.getElementById(id);
@@ -51,7 +52,7 @@ async function boot(){
       if(me.role!=="admin"&&PANEL!=="reseller"||me.role==="admin"&&PANEL!=="admin"){location.href=routeForRole(me.role);return}
       const brand=document.querySelector(".brand b"); if(brand&&window.rntxSettings.panel_name) brand.textContent=window.rntxSettings.panel_name;
       const game=$("game"); if(game&&window.rntxSettings.default_game) game.value=window.rntxSettings.default_game;
-      $("login").classList.add("hidden");$("app").classList.remove("hidden");applyRoleUI();show("dashboard");
+      $("login").classList.add("hidden");$("app").classList.remove("hidden");applyRoleUI();if(me.role==="reseller")loadBranding();show("dashboard");
     }
   }catch(e){if(e.code)$("loginMsg").textContent=e.message}
 }
@@ -69,6 +70,7 @@ function show(id){
   document.querySelectorAll(".page").forEach(x=>x.classList.add("hidden"));
   $(id).classList.remove("hidden");$("nav").classList.remove("navopen");
   if(id==="dashboard")loadDash();
+  if(id==="resellerSales")loadSalesSummary();
   if(id==="keys")loadKeys();
   if(id==="create")loadCreate();
   if(id==="users")loadUsers();
@@ -86,6 +88,34 @@ async function loadDash(){
   $("walletSummary").innerHTML=me.role==="reseller"?`<h3>WALLET BALANCE</h3><div class="wallet-amount">₹${Number(d.wallet||0).toLocaleString("en-IN")}</div><p>Available for license purchases. Panel days and license expiry are separate.</p>`:"<h3>ADMIN CONTROL</h3><p>Manage reseller panel days, wallet balances, and maximum device limits from Manage Users.</p>";
   if(me.role==="reseller")$("recentTransactions").innerHTML=d.recentTransactions?.length?d.recentTransactions.map(transactionLine).join(""):"<p>No transactions yet.</p>";
 }
+async function loadSalesSummary(){
+  if(me?.role!=="reseller")return;
+  try{
+    const d=await api("/api/reseller/sales-summary");
+    const s=d.summary||{}, t=d.today||{};
+    $("salesStats").innerHTML=[
+      ["💰",Number(s.revenue||0),"Total Sales"],
+      ["📦",Number(s.license_sales||0),"Licenses Sold"],
+      ["📅",Number(t.revenue||0),"Today"],
+      ["🧾",Number(t.sales||0),"Today's Sales"]
+    ].map(x=>`<div class="stat"><div>${x[0]}</div><b>₹${Number(x[1]).toLocaleString("en-IN")}</b><span>${x[2]}</span></div>`).join("");
+  }catch(e){if($("salesStats"))$("salesStats").innerHTML=`<p class="muted">${esc(e.message)}</p>`}
+}
+function makeReceipt(data){
+  const keys=(data?.keys||[]).map(x=>x.key||x.license_key||x).join("\n");
+  const game=data?.game||"My APK", duration=data?.duration||"", devices=data?.maxDevices||1, qty=data?.quantity||((data?.keys||[]).length||1);
+  latestReceipt=`🔥 LICENSE PURCHASE\n\n🎮 APK: ${game}\n⏱️ Duration: ${duration}\n📱 Devices: ${devices}\n🔢 Quantity: ${qty}\n\n🔑 KEY(S):\n${keys}\n\n✅ Please save this message.\n🛡️ Powered by ${document.querySelector(".brand b")?.textContent||"DANGER"}`;
+  const box=$("receiptBox"); if(box)box.textContent=latestReceipt;
+}
+async function copyReceipt(){
+  if(!latestReceipt)return;
+  try{await navigator.clipboard.writeText(latestReceipt);toastCopyMessage("Receipt copied!")}catch{toastCopyMessage("Copy failed")}
+}
+function shareReceiptWhatsApp(){
+  if(!latestReceipt)return toastCopyMessage("Generate a license first");
+  location.href="https://wa.me/?text="+encodeURIComponent(latestReceipt);
+}
+
 async function loadKeys(){
   const rows=await api("/api/keys?q="+encodeURIComponent($("search")?.value||""));
   $("keysBody").innerHTML=rows.map(k=>`<tr><td>${esc(k.license_key)}</td><td>${esc(k.game)}</td><td>${formatDate(k.expires_at)}</td><td><span class="pill">${esc(k.status)}</span></td><td>${k.devices_used}/${k.max_devices}</td><td>${me.role==="admin"?`<button class="small" onclick="toggleKey(${k.id},'${k.status==="BLOCKED"?"UNUSED":"BLOCKED"}')">${k.status==="BLOCKED"?"UNBLOCK":"BLOCK"}</button><button class="small danger" onclick="delKey(${k.id})">DELETE</button>`:`<span class="muted-action">VIEW ONLY</span>`}</td></tr>`).join("")||"<tr><td colspan=6>No generated keys yet.</td></tr>";
@@ -118,7 +148,7 @@ async function createKey(){
     const keys=d.keys?.length?d.keys:[{key:d.key}];
     $("newKey").classList.remove("hidden");
     $("newKey").innerHTML=keys.map(item=>`<div class="copy-row"><code>${esc(item.key)}</code><button class="copy-button" onclick="copyKey('${escapeAttr(item.key)}',this)">COPY KEY</button></div>`).join("");
-    $("copyMsg").textContent="";toastCopyMessage("License generated successfully.");loadKeys();loadDash();
+    $("copyMsg").textContent="";toastCopyMessage("License generated successfully.");makeReceipt(data);loadKeys();loadDash();
   }catch(e){$("copyMsg").textContent=e.message}
 }
 async function copyKey(key,button){
