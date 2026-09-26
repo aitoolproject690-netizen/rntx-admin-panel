@@ -19,6 +19,10 @@
 
 <div class="card"><div class="row"><h3>RESELLER PANELS</h3><span class="muted">All reseller accounts created from Master Admin</span></div><div class="card owner-tools"><input id="resellerSearch" placeholder="🔎 Search reseller..." oninput="renderResellers()"><select id="resellerFilter" onchange="renderResellers()"><option value="all">All</option><option value="active">Active</option><option value="blocked">Blocked</option><option value="expired">Expired</option></select></div><div id="resellers" class="reseller-grid"></div></div>
 
+
+<div class="card"><div class="row"><h3>OWNER ACTIVITY</h3><button onclick="loadActivity()">↻ REFRESH</button></div>
+<div class="card"><h4>RECENT AUDIT LOGS</h4><div id="auditLogs">Loading...</div></div>
+<div class="card"><h4>RECENT TRANSACTIONS</h4><div id="ownerTransactions">Loading...</div></div></div>
 <div id="panels"></div></section></main></div>
 <script>
 const $=id=>document.getElementById(id);
@@ -47,5 +51,15 @@ async function toggleReseller(id,active){try{await api('/api/users/'+id,{method:
 async function extendReseller(id){const days=prompt('Kitne din ka expiry set karna hai? Blank = lifetime','30');if(days===null)return;try{await api('/api/users/'+id,{method:'PATCH',body:JSON.stringify({panelDays:days===''?null:Number(days)})});loadResellers()}catch(e){alert(e.message)}}
 async function editReseller(id){const u=resellerCache.find(x=>x.id===id);if(!u)return;const username=prompt('New username:',u.username);if(username===null)return;const password=prompt('New password (8+ chars):');if(password===null)return;try{await api('/api/users/'+id,{method:'PATCH',body:JSON.stringify({username,password})});loadResellers();alert('Reseller login updated.')}catch(e){alert(e.message)}}
 async function deleteReseller(id,name){if(!confirm('DELETE '+name+' reseller panel? Is reseller ke keys, transactions aur account delete honge.'))return;try{await api('/api/users/'+id,{method:'DELETE'});loadResellers()}catch(e){alert(e.message)}}
-loadAll();
+loadAll();loadActivity();
+
+async function loadActivity(){
+ try{
+  const [logs,tx]=await Promise.all([api('/api/audit-logs?limit=30'),api('/api/transactions?limit=30')]);
+  $('auditLogs').innerHTML=logs.length?logs.map(x=>'<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.08)"><b>'+esc(x.event_type)+'</b> · '+esc(x.username||'system')+' · '+fmt(x.created_at)+'<br><span class="muted">'+esc(x.metadata||'{}')+'</span></div>').join(''):'<div class="muted">No audit activity.</div>';
+  $('ownerTransactions').innerHTML=tx.length?tx.map(x=>'<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.08)"><b>'+esc(x.type)+'</b> · '+esc(x.username||'—')+' · ₹'+esc(x.amount)+' · '+fmt(x.created_at)+'<br><span class="muted">'+esc(x.description||'')+'</span></div>').join(''):'<div class="muted">No transactions.</div>';
+ }catch(e){
+  $('auditLogs').textContent=e.message;$('ownerTransactions').textContent=e.message;
+ }
+}
 </script></body></html>
