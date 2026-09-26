@@ -722,7 +722,7 @@ app.patch("/api/reseller/branding",auth,(req,res)=>{
   const logoUrl=String(req.body?.logoUrl||"").trim().slice(0,500);
   const accent=String(req.body?.accentColor||"#ff2447").trim();
   if(brandName.length<2) return res.status(400).json({error:"Brand name must be at least 2 characters"});
-  if(logoUrl && !/^https?:\\/\\//i.test(logoUrl)) return res.status(400).json({error:"Logo URL must start with http:// or https://"});
+  if(logoUrl && !/^https?:\/\//i.test(logoUrl)) return res.status(400).json({error:"Logo URL must start with http:// or https://"});
   if(!/^#[0-9a-fA-F]{6}$/.test(accent)) return res.status(400).json({error:"Accent color must be a 6-digit hex color"});
   db.prepare(`INSERT INTO reseller_branding(user_id,brand_name,logo_url,accent_color,updated_at)
     VALUES(?,?,?,?,CURRENT_TIMESTAMP)
