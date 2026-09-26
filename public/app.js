@@ -20,6 +20,22 @@ function panelStatus(user){
   if(user.panel_expires_at&&new Date(user.panel_expires_at)<=new Date())return "EXPIRED";
   return "ACTIVE";
 }
+function applyBranding(brand){
+  if(me?.role!=="reseller" || !brand) return;
+  const name=brand.brand_name||me.username;
+  document.documentElement.style.setProperty("--pink",brand.accent_color||"#ff2447");
+  document.documentElement.style.setProperty("--blue",brand.accent_color||"#ff2447");
+  const brandEl=document.querySelector(".brand b"); if(brandEl) brandEl.textContent=name;
+  const previewName=$( "brandPreviewName" ); if(previewName) previewName.textContent=name;
+  const previewLogo=$( "brandPreviewLogo" ); if(previewLogo) previewLogo.innerHTML=brand.logo_url?`<img src="${esc(brand.logo_url)}" alt="logo">`:"🛡️";
+}
+async function loadBranding(){
+  try{const b=await api("/api/reseller/branding");$( "brandName" ).value=b.brand_name||me.username;$( "brandLogo" ).value=b.logo_url||"";$( "brandColor" ).value=b.accent_color||"#ff2447";applyBranding(b);updateBrandPreview();}catch(e){$( "brandingMsg" ).textContent=e.message}
+}
+function updateBrandPreview(){const name=$( "brandName" )?.value.trim()||me?.username||"DANGER RESELLER";const logo=$( "brandLogo" )?.value.trim();const color=$( "brandColor" )?.value||"#ff2447";if($( "brandPreviewName" ))$( "brandPreviewName" ).textContent=name;if($( "brandPreviewLogo" ))$( "brandPreviewLogo" ).innerHTML=logo?`<img src="${esc(logo)}" alt="logo">`:"🛡️";document.documentElement.style.setProperty("--pink",color);document.documentElement.style.setProperty("--blue",color)}
+async function saveBranding(){
+  try{const d=await api("/api/reseller/branding",{method:"PATCH",body:JSON.stringify({brandName:$( "brandName" ).value,logoUrl:$( "brandLogo" ).value,accentColor:$( "brandColor" ).value})});applyBranding(d);$( "brandingMsg" ).textContent="Branding saved successfully.";setTimeout(()=>{if($( "brandingMsg" ))$( "brandingMsg" ).textContent=""},2200)}catch(e){$( "brandingMsg" ).textContent=e.message}
+}
 function applyRoleUI(){
   document.querySelectorAll(".admin-only").forEach(el=>el.classList.toggle("hidden",me?.role!=="admin"));
   document.querySelectorAll(".reseller-only").forEach(el=>el.classList.toggle("hidden",me?.role!=="reseller"));
@@ -61,6 +77,7 @@ function show(id){
   if(id==="referrals")loadRefs();
   if(id==="audit"&&me?.role==="admin")loadAudit();
   if(id==="settings"&&me?.role==="admin")loadSettings();
+  if(id==="branding"&&me?.role==="reseller")loadBranding();
 }
 async function loadDash(){
   const d=await api("/api/dashboard");
@@ -209,4 +226,5 @@ async function loadRefs(){
   $("refBody").innerHTML=rows.length?rows.map(x=>`<p>👤 ${esc(x.username)} — ${x.active?"ACTIVE":"BLOCKED"} — ${esc(x.referral_code)}</p>`).join(""):"<p>No referred users yet.</p>";
 }
 function esc(s){return String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]))}
+document.addEventListener("input",e=>{if(["brandName","brandLogo","brandColor"].includes(e.target?.id))updateBrandPreview()});
 boot();
