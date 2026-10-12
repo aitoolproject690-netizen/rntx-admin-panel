@@ -56,3 +56,10 @@ No KVM host, customer VPS, storage pool, public route, or external payment provi
 ## This change's boundary
 
 The KVM preflight is a safe first building block, not a VPS product. It intentionally does not register hosts, send credentials, provision guests, manage storage, allocate IPs, or claim any of those features. Those modules need their own reviewed implementation and tests before they can be exposed to customers.
+
+
+## Draft PR follow-up status (branch agent/vps-kvm-preflight; not merged)
+
+The isolated host-agent code added after the baseline above implements mandatory mTLS control-plane authentication, request idempotency/rate limits, local audit records, checked synchronous libvirt VM provisioning and lifecycle, safe directory-pool volume handling, grow-only offline disk resize, private IPv4 NAT/DHCP IPAM, and read-only host/pool/network status endpoints. Thirty agent unit tests use explicit temporary-state and command/storage/network doubles; they are not live-host acceptance tests. The earlier read-only KVM preflight remains separate.
+
+This does not add host registration/scheduling, a client in the existing RNTX Node app, a tenant VPS UI/schema/billing flow, public routed IPs, IPv6, cross-node storage, snapshots, or volume backup/restore. No real KVM host is connected or marked LIVE. The branch's feature statuses supersede the baseline table only for host-agent API, VM operations, managed storage, and private IPv4 networking; unrelated legacy-app findings remain baseline observations.
