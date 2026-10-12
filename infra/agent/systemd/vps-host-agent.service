@@ -1,0 +1,35 @@
+[Unit]
+Description=RNTX self-hosted VPS host agent
+After=network-online.target libvirtd.service
+Wants=network-online.target
+Requires=libvirtd.service
+
+[Service]
+Type=simple
+User=vps-agent
+Group=libvirt
+WorkingDirectory=/opt/rntx-admin-panel
+EnvironmentFile=/etc/vps-agent/agent.env
+StateDirectory=vps-agent
+StateDirectoryMode=0700
+UMask=0077
+ExecStart=/usr/bin/python3 -m infra.agent.server
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/vps-agent
+ReadOnlyPaths=/etc/vps-agent /usr/local/share/vps-cloud-images /var/lib/libvirt/images/vps-agent-pool
+
+[Install]
+WantedBy=multi-user.target

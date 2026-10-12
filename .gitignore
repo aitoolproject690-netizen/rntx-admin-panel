@@ -2,4 +2,16 @@ node_modules/
 rntx.db
 rntx.db-shm
 rntx.db-wal
+rntx-sessions.db
+rntx-sessions.db-shm
+rntx-sessions.db-wal
+.env
+.env.*
+!.env.example
 npm-debug.log*
+
+# Python host-agent development artifacts
+__pycache__/
+*.py[cod]
+.venv/
+venv/
