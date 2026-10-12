@@ -32,6 +32,7 @@ class KvmPreflightTests(unittest.TestCase):
         self.assertEqual(report["host_preflight"], "READY")
         self.assertEqual(report["integrations"]["local_libvirt"], "CONNECTED")
         self.assertEqual(report["integrations"]["control_plane"], "NOT CONNECTED")
+        self.assertEqual(report["integrations"]["host_agent"], "IMPLEMENTED — NOT CONNECTED")
         self.assertEqual(report["integrations"]["vm_provisioning"], "NOT CONNECTED")
         self.assertTrue(report["read_only"])
 
