@@ -94,7 +94,7 @@ def assess(
         "integrations": {
             "local_libvirt": "CONNECTED" if virsh_binary and libvirt_connected else "NOT CONNECTED",
             "control_plane": "NOT CONNECTED",
-            "host_agent": "NOT IMPLEMENTED",
+            "host_agent": "IMPLEMENTED — NOT CONNECTED",
             "vm_provisioning": "NOT CONNECTED",
             "storage_pools": "NOT CONNECTED",
             "public_network": "NOT CONNECTED",
