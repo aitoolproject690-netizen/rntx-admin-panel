@@ -121,7 +121,11 @@ class AgentState:
                     raise StateConflict("released VM identifiers cannot be reused")
                 if existing["tenant_id"] != tenant_id or existing["mac"].lower() != mac.lower() or existing["network"] != network:
                     raise StateConflict("existing IP lease identity does not match this tenant, MAC, and network")
-                if type(start)(int(existing["ip"])) not in cidr or not int(start) <= int(ipaddress.ip_address(existing["ip"])) <= int(end):
+                try:
+                    existing_ip = ipaddress.ip_address(existing["ip"])
+                except ValueError as exc:
+                    raise StateConflict("existing IP lease is invalid") from exc
+                if not isinstance(existing_ip, ipaddress.IPv4Address) or existing_ip not in cidr or not int(start) <= int(existing_ip) <= int(end):
                     raise StateConflict("existing IP lease is outside the configured private DHCP range")
                 return existing["ip"]
             used = {row[0] for row in db.execute("SELECT ip FROM ip_leases WHERE network=? AND status!='released'", (network,))}
