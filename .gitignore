@@ -9,3 +9,9 @@ rntx-sessions.db-wal
 .env.*
 !.env.example
 npm-debug.log*
+
+# Python host-agent development artifacts
+__pycache__/
+*.py[cod]
+.venv/
+venv/
